@@ -1,93 +1,77 @@
-
-                                                                                                                    res.json(response.data);
-                    const express = require('express');
+                                                                                                                                                                                                                                            const PORT = process.env.PORT || 3000;                                                                                      const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Tu API key de API-Football
-const API_KEY = "6578ce4bcf940dbff3f82b1ca6549cef";
-
-// Endpoint de prueba
+// Ruta de prueba
 app.get('/', (req, res) => {
-    res.json({ 
-        status: 'online', 
-        message: 'BetGroup Proxy funcionando',
-        time: new Date().toISOString()
-    });
+    res.json({ status: 'online', message: 'BetGroup Proxy funcionando' });
 });
 
-// Endpoint para partidos por fecha
+// Ruta para obtener partidos en vivo
 app.get('/api/fixtures', async (req, res) => {
     try {
-        const { date, league } = req.query;
+        const { live = 'all', league } = req.query;
         
-        if (!date) {
-            return res.status(400).json({ error: 'Se requiere fecha (YYYY-MM-DD)' });
-        }
-        
-        let url = `https://v3.football.api-sports.io/fixtures?date=${date}`;
-        
-        const response = await axios.get(url, {
-            headers: {
-                'x-rapidapi-key': API_KEY,
-                'x-rapidapi-host': 'v3.football.api-sports.io'
+        // Aquí puedes conectar con API-Football o devolver datos de ejemplo
+        // Mientras tanto, devolvemos datos de muestra para probar
+        const sampleData = [
+            {
+                id: 1,
+                local: "Real Madrid",
+                visitante: "Barcelona",
+                marcador: "2-1",
+                minuto: "71'",
+                cuota_local: 2.10,
+                cuota_empate: 3.40,
+                cuota_visitante: 3.20
             },
-            timeout: 10000
-        });
+            {
+                id: 2,
+                local: "Manchester City",
+                visitante: "Liverpool",
+                marcador: "1-0",
+                minuto: "58'",
+                cuota_local: 2.05,
+                cuota_empate: 3.50,
+                cuota_visitante: 3.30
+            }
+        ];
         
-        res.json(response.data);
-    } catch (error) {
-        console.error('Error:', error.message);
-        res.status(500).json({ 
-            error: error.message,
-            date: req.query.date
+        res.json({
+            status: 'online',
+            data: sampleData
         });
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ status: 'error', message: error.message });
     }
 });
 
-// Endpoint para ligas
-app.get('/api/leagues', async (req, res) => {
+// Ruta para obtener cuotas de un partido específico
+app.get('/api/odds', async (req, res) => {
     try {
-        const response = await axios.get('https://v3.football.api-sports.io/leagues', {
-            headers: {
-                'x-rapidapi-key': API_KEY,
-                'x-rapidapi-host': 'v3.football.api-sports.io'
+        const { fixture } = req.query;
+        res.json({
+            status: 'online',
+            data: {
+                local: 2.10,
+                empate: 3.40,
+                visitante: 3.20
             }
         });
-        res.json(response.data);
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ status: 'error', message: error.message });
     }
 });
 
-const PORT = process.env.PORT || 3000;
+// Iniciar servidor
 app.listen(PORT, () => {
-    console.log(`✅ Proxy corriendo en puerto ${PORT}`);
-});                                                                                                                                                                               res.status(500).json({ error: error.message });
-                                                                                                                                    }
-                                                                                                                                    });
-
-                                                                                                                                    app.get('/api/live', async (req, res) => {
-                                                                                                                                        try {
-                                                                                                                                                const response = await axios.get('https://v3.football.api-sports.io/fixtures?live=all', {
-                                                                                                                                                            headers: {
-                                                                                                                                                                            'x-rapidapi-key': API_KEY,
-                                                                                                                                                                                            'x-rapidapi-host': 'v3.football.api-sports.io'
-                                                                                                                                                                                                        }
-                                                                                                                                                                                                                });
-                                                                                                                                                                                                                        res.json(response.data);
-                                                                                                                                                                                                                            } catch (error) {
-                                                                                                                                                                                                                                    res.status(500).json({ error: error.message });
-                                                                                                                                                                                                                                        }
-                                                                                                                                                                                                                                        });
-
-                                                                                                                                                                                                                                        app.get('/', (req, res) => {
-                                                                                                                                                                                                                                            res.json({ status: 'online', message: 'BetGroup Proxy funcionando' });
-                                                                                                                                                                                                                                            });
-
-                                                                                                                                                                                                                                            const PORT = process.env.PORT || 3000;
-                                                                                                                                                                       app.listen(PORT, () => console.log(`Proxy en puerto ${PORT}`));
+    console.log(`Proxy corriendo en puerto ${PORT}`);
+});                                               
