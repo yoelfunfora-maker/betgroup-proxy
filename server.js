@@ -48,12 +48,47 @@ function fetchESPN(path) {
   });
 }
 
-// ==================== API-SPORTS PARA CUOTAS REALES ====================
-const API_SPORTS_KEY = '6578ce4bcf940dbff3f82b1ca6549cef';
+// ==================== API-SPORTS CON RESPALDO AUTOMÁTICO ====================
+const API_SPORTS_KEY = '9c6baa24885e4b5c12d33d7530b03996';
 const API_SPORTS_CACHE = {};
 const ODDS_CACHE_TTL = 60 * 60 * 1000; // 1 hora
+let apiSportsFailures = 0;
+const MAX_FAILURES = 3;
 
-async function fetchOddsFromAPISports(sport, leagueId) {
+const LEAGUE_MAPPING = {
+  soccer: {
+    'Spanish LALIGA': 140,
+    'English Premier League': 39,
+    'German Bundesliga': 78,
+    'Italian Serie A': 135,
+    'French Ligue 1': 61,
+    'UEFA Champions League': 2,
+    'CONMEBOL Libertadores': 13,
+    'MLS': 253
+  },
+  basketball: {
+    'National Basketball Association': 12
+  },
+  football: {
+    'National Football League': 1
+  },
+  baseball: {
+    'Major League Baseball': 1
+  }
+};
+
+async function fetchOddsFromAPISports(sport, leagueName) {
+  // Si ya falló muchas veces, no intentar más (ahorrar requests)
+  if (apiSportsFailures >= MAX_FAILURES) {
+    console.log('⚠️ API-Sports desactivada por fallos consecutivos. Usando cuotas simuladas.');
+    return null;
+  }
+  
+  if (!LEAGUE_MAPPING[sport] || !LEAGUE_MAPPING[sport][leagueName]) {
+    return null; // Sin mapeo = usar simuladas
+  }
+  
+  const leagueId = LEAGUE_MAPPING[sport][leagueName];
   const cacheKey = `odds_${sport}_${leagueId}`;
   const cached = API_SPORTS_CACHE[cacheKey];
   if (cached && Date.now() - cached.timestamp < ODDS_CACHE_TTL) {
@@ -64,7 +99,6 @@ async function fetchOddsFromAPISports(sport, leagueId) {
     soccer: 'v3.football',
     basketball: 'v1.basketball',
     football: 'v1.american-football',
-    hockey: 'v1.hockey',
     baseball: 'v1.baseball'
   };
   
@@ -72,47 +106,72 @@ async function fetchOddsFromAPISports(sport, leagueId) {
   if (!domain) return null;
   
   try {
-    const url = `https://${domain}.api-sports.io/odds?league=${leagueId}&season=2025`;
+    const season = sport === 'soccer' ? 2025 : (sport === 'basketball' ? '2025-2026' : 2025);
+    const url = `https://${domain}.api-sports.io/odds?league=${leagueId}&season=${season}`;
+    
+    // Timeout de 5 segundos para no colgarse
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     const res = await fetch(url, {
-      headers: { 'x-apisports-key': API_SPORTS_KEY }
+      headers: { 'x-apisports-key': API_SPORTS_KEY },
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
+    
     const data = await res.json();
+    
+    // Verificar si la respuesta tiene errores
+    if (data.errors && Object.keys(data.errors).length > 0) {
+      console.log('⚠️ API-Sports error:', data.errors);
+      apiSportsFailures++;
+      return null;
+    }
+    
+    // Reiniciar contador de fallos si funciona
+    apiSportsFailures = 0;
     
     API_SPORTS_CACHE[cacheKey] = { data: data.response, timestamp: Date.now() };
     return data.response;
+    
   } catch(e) {
-    console.error('Error API-Sports:', e);
-    return null;
+    console.log('❌ API-Sports caída o error:', e.message);
+    apiSportsFailures++;
+    return null; // Fallback silencioso a cuotas simuladas
   }
 }
 
-// ==================== CÁLCULO DE CUOTAS DINÁMICAS (MEJORADO CON API-SPORTS) ====================
-function calcularCuotas(homeRank, awayRank, sport, apiOdds) {
-  // Si hay cuotas reales de API-Sports, usarlas
+// ==================== CÁLCULO DE CUOTAS ====================
+function calcularCuotas(homeRank, awayRank, sport, apiOdds, homeTeam, awayTeam) {
+  // Buscar cuotas específicas del partido en API-Sports
   if (apiOdds && apiOdds.length > 0) {
-    const bookmaker = apiOdds[0]?.bookmakers?.[0];
-    if (bookmaker) {
-      const bets = bookmaker.bets || [];
-      const homeBet = bets.find(b => b.name === 'Home');
-      const awayBet = bets.find(b => b.name === 'Away');
-      const drawBet = bets.find(b => b.name === 'Draw');
-      
-      if (homeBet && awayBet) {
-        return {
-          cuota_local: parseFloat(homeBet.values[0]?.odd || 2.0),
-          cuota_visitante: parseFloat(awayBet.values[0]?.odd || 2.0),
-          cuota_empate: drawBet ? parseFloat(drawBet.values[0]?.odd) : null
-        };
+    for (const match of apiOdds) {
+      if (match.teams.home.name === homeTeam && match.teams.away.name === awayTeam) {
+        const bookmakers = match.bookmakers || [];
+        if (bookmakers.length > 0) {
+          const bets = bookmakers[0].bets || [];
+          const homeBet = bets.find(b => b.name === 'Home' || b.name === 'Match Winner');
+          const awayBet = bets.find(b => b.name === 'Away');
+          const drawBet = bets.find(b => b.name === 'Draw');
+          
+          if (homeBet && awayBet) {
+            return {
+              cuota_local: parseFloat(homeBet.values[0]?.odd || 2.0),
+              cuota_visitante: parseFloat(awayBet.values[0]?.odd || 2.0),
+              cuota_empate: drawBet ? parseFloat(drawBet.values[0]?.odd) : null
+            };
+          }
+        }
       }
     }
   }
   
-  // Fallback al cálculo simulado si no hay datos de API
+  // Fallback: cálculo simulado
   const hr = homeRank || 50;
   const ar = awayRank || 50;
   
   const LOCAL_ADVANTAGE = 0.15;
-  
   const totalRank = hr + ar;
   let homeStrength = ar / totalRank;
   let awayStrength = hr / totalRank;
@@ -173,9 +232,13 @@ function generateExtraMarkets(homeRank, awayRank, sport) {
 }
 
 // ==================== PARSER DE EVENTOS ====================
-function parseEvents(espnData, sport) {
+async function parseEvents(espnData, sport) {
   const events = [];
   if (!espnData || !espnData.events) return events;
+
+  // Obtener cuotas de API-Sports para esta liga
+  const leagueName = espnData.leagues?.[0]?.name;
+  const apiOdds = await fetchOddsFromAPISports(sport, leagueName);
 
   for (const ev of espnData.events) {
     try {
@@ -201,7 +264,10 @@ function parseEvents(espnData, sport) {
       const homeRank = parseInt(home.curatedRank?.current || 50);
       const awayRank = parseInt(away.curatedRank?.current || 50);
       
-      const cuotas = calcularCuotas(homeRank, awayRank, sport, null); // Sin API Odds por ahora
+      const cuotas = calcularCuotas(
+        homeRank, awayRank, sport, apiOdds,
+        home.team?.displayName, away.team?.displayName
+      );
       
       let estado = isLive ? 'live' : 'scheduled';
       if (isFinal) estado = 'final';
@@ -209,7 +275,7 @@ function parseEvents(espnData, sport) {
       const eventObj = {
         id: ev.id,
         sport,
-        liga: espnData.leagues?.[0]?.name || sport,
+        liga: leagueName || sport,
         ligaLogo: espnData.leagues?.[0]?.logos?.[0]?.href || null,
         local: home.team?.displayName || 'Local',
         visitante: away.team?.displayName || 'Visitante',
@@ -390,7 +456,7 @@ app.get('/api/stats/:eventId', async (req, res) => {
 // ==================== ENDPOINTS PRINCIPALES ====================
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'BetGroup Pro API v3.2 — ESPN + API-Sports' });
+  res.json({ status: 'online', message: 'BetGroup Pro API v4.0 — ESPN + API-Sports con Respaldo' });
 });
 
 app.get('/api/health', (req, res) => {
@@ -412,7 +478,6 @@ app.get('/api/fixtures', async (req, res) => {
     { path: 'soccer/usa.1/scoreboard', sport: 'soccer' },
     { path: 'basketball/nba/scoreboard', sport: 'basketball' },
     { path: 'football/nfl/scoreboard', sport: 'football' },
-    { path: 'hockey/nhl/scoreboard', sport: 'hockey' },
     { path: 'baseball/mlb/scoreboard', sport: 'baseball' },
   ];
 
@@ -422,7 +487,7 @@ app.get('/api/fixtures', async (req, res) => {
     deportes.map(async ({ path, sport }) => {
       try {
         const data = await fetchESPN(path);
-        const events = parseEvents(data, sport);
+        const events = await parseEvents(data, sport);
         todos.push(...events);
       } catch(e) { }
     })
@@ -449,5 +514,5 @@ app.get('/api/fixtures', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ BetGroup Pro Proxy v3.2 en puerto ${PORT}`);
+  console.log(`✅ BetGroup Pro Proxy v4.0 en puerto ${PORT} - API-Sports con respaldo`);
 });
