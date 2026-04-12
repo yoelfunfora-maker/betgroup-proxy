@@ -466,3 +466,70 @@ app.get('/api/fixtures', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v5.0 en puerto ${PORT} - Ranking Real`);
 });
+// ==================== ENDPOINT DE RESULTADOS FINALES ====================
+app.get('/api/results', async (req, res) => {
+  const cacheKey = 'results_finalizados';
+  const cached = cache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
+    return res.json(cached.data);
+  }
+  
+  const deportes = [
+    { path: 'soccer/esp.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/eng.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/ger.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/ita.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/fra.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/uefa.champions/scoreboard', sport: 'soccer' },
+    { path: 'soccer/conmebol.libertadores/scoreboard', sport: 'soccer' },
+    { path: 'soccer/usa.1/scoreboard', sport: 'soccer' },
+    { path: 'basketball/nba/scoreboard', sport: 'basketball' },
+    { path: 'football/nfl/scoreboard', sport: 'football' },
+    { path: 'baseball/mlb/scoreboard', sport: 'baseball' },
+  ];
+  
+  const resultados = [];
+  
+  await Promise.allSettled(
+    deportes.map(async ({ path, sport }) => {
+      try {
+        const data = await fetchESPN(path);
+        if (!data || !data.events) return;
+        
+        for (const ev of data.events) {
+          const status = ev.status?.type;
+          const isFinal = status?.state === 'post' || status?.completed === true;
+          if (!isFinal) continue;
+          
+          const competition = ev.competitions?.[0];
+          if (!competition) continue;
+          const competitors = competition.competitors || [];
+          const home = competitors.find(c => c.homeAway === 'home');
+          const away = competitors.find(c => c.homeAway === 'away');
+          if (!home || !away) continue;
+          
+          resultados.push({
+            id: ev.id,
+            sport,
+            local: home.team?.displayName || 'Local',
+            visitante: away.team?.displayName || 'Visitante',
+            marcador: `${home.score || '0'}-${away.score || '0'}`,
+            golesLocal: parseInt(home.score || '0'),
+            golesVisitante: parseInt(away.score || '0'),
+            fecha: ev.date
+          });
+        }
+      } catch(e) { }
+    })
+  );
+  
+  const response = {
+    status: 'online',
+    timestamp: new Date().toISOString(),
+    total: resultados.length,
+    data: resultados
+  };
+  
+  cache[cacheKey] = { data: response, timestamp: Date.now() };
+  res.json(response);
+});
