@@ -48,8 +48,66 @@ function fetchESPN(path) {
   });
 }
 
-// ==================== CÁLCULO DE CUOTAS DINÁMICAS ====================
-function calcularCuotas(homeRank, awayRank, sport) {
+// ==================== API-SPORTS PARA CUOTAS REALES ====================
+const API_SPORTS_KEY = '6578ce4bcf940dbff3f82b1ca6549cef';
+const API_SPORTS_CACHE = {};
+const ODDS_CACHE_TTL = 60 * 60 * 1000; // 1 hora
+
+async function fetchOddsFromAPISports(sport, leagueId) {
+  const cacheKey = `odds_${sport}_${leagueId}`;
+  const cached = API_SPORTS_CACHE[cacheKey];
+  if (cached && Date.now() - cached.timestamp < ODDS_CACHE_TTL) {
+    return cached.data;
+  }
+  
+  const sportDomains = {
+    soccer: 'v3.football',
+    basketball: 'v1.basketball',
+    football: 'v1.american-football',
+    hockey: 'v1.hockey',
+    baseball: 'v1.baseball'
+  };
+  
+  const domain = sportDomains[sport];
+  if (!domain) return null;
+  
+  try {
+    const url = `https://${domain}.api-sports.io/odds?league=${leagueId}&season=2025`;
+    const res = await fetch(url, {
+      headers: { 'x-apisports-key': API_SPORTS_KEY }
+    });
+    const data = await res.json();
+    
+    API_SPORTS_CACHE[cacheKey] = { data: data.response, timestamp: Date.now() };
+    return data.response;
+  } catch(e) {
+    console.error('Error API-Sports:', e);
+    return null;
+  }
+}
+
+// ==================== CÁLCULO DE CUOTAS DINÁMICAS (MEJORADO CON API-SPORTS) ====================
+function calcularCuotas(homeRank, awayRank, sport, apiOdds) {
+  // Si hay cuotas reales de API-Sports, usarlas
+  if (apiOdds && apiOdds.length > 0) {
+    const bookmaker = apiOdds[0]?.bookmakers?.[0];
+    if (bookmaker) {
+      const bets = bookmaker.bets || [];
+      const homeBet = bets.find(b => b.name === 'Home');
+      const awayBet = bets.find(b => b.name === 'Away');
+      const drawBet = bets.find(b => b.name === 'Draw');
+      
+      if (homeBet && awayBet) {
+        return {
+          cuota_local: parseFloat(homeBet.values[0]?.odd || 2.0),
+          cuota_visitante: parseFloat(awayBet.values[0]?.odd || 2.0),
+          cuota_empate: drawBet ? parseFloat(drawBet.values[0]?.odd) : null
+        };
+      }
+    }
+  }
+  
+  // Fallback al cálculo simulado si no hay datos de API
   const hr = homeRank || 50;
   const ar = awayRank || 50;
   
@@ -143,7 +201,7 @@ function parseEvents(espnData, sport) {
       const homeRank = parseInt(home.curatedRank?.current || 50);
       const awayRank = parseInt(away.curatedRank?.current || 50);
       
-      const cuotas = calcularCuotas(homeRank, awayRank, sport);
+      const cuotas = calcularCuotas(homeRank, awayRank, sport, null); // Sin API Odds por ahora
       
       let estado = isLive ? 'live' : 'scheduled';
       if (isFinal) estado = 'final';
@@ -199,7 +257,6 @@ app.get('/api/stats/:eventId', async (req, res) => {
     const summaryPath = `${sport}/summary?event=${eventId}`;
     const data = await fetchESPN(summaryPath);
     
-    // Estadísticas base (varían según deporte)
     let stats = {
       eventId,
       sport,
@@ -216,7 +273,6 @@ app.get('/api/stats/:eventId', async (req, res) => {
         const homeStats = home.statistics || [];
         const awayStats = away.statistics || [];
         
-        // Función helper para extraer estadística
         const extractStat = (statArray, statName) => {
           const found = statArray.find(s => s.name === statName);
           return found ? found.displayValue : (statName.includes('Pct') ? '0%' : 0);
@@ -334,7 +390,7 @@ app.get('/api/stats/:eventId', async (req, res) => {
 // ==================== ENDPOINTS PRINCIPALES ====================
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'BetGroup Pro API v3.1 — Cuotas Dinámicas + Stats en Vivo' });
+  res.json({ status: 'online', message: 'BetGroup Pro API v3.2 — ESPN + API-Sports' });
 });
 
 app.get('/api/health', (req, res) => {
@@ -393,5 +449,5 @@ app.get('/api/fixtures', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ BetGroup Pro Proxy v3.1 en puerto ${PORT}`);
+  console.log(`✅ BetGroup Pro Proxy v3.2 en puerto ${PORT}`);
 });
