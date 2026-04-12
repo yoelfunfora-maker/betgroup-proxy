@@ -48,12 +48,10 @@ function fetchESPN(path) {
   });
 }
 
-// ==================== API-SPORTS CON RESPALDO AUTOMÁTICO ====================
+// ==================== API-SPORTS PARA RANKING REAL ====================
 const API_SPORTS_KEY = '9c6baa24885e4b5c12d33d7530b03996';
-const API_SPORTS_CACHE = {};
-const ODDS_CACHE_TTL = 60 * 60 * 1000; // 1 hora
-let apiSportsFailures = 0;
-const MAX_FAILURES = 3;
+const STANDINGS_CACHE = {};
+const STANDINGS_TTL = 24 * 60 * 60 * 1000; // 24 horas (el ranking no cambia a cada rato)
 
 const LEAGUE_MAPPING = {
   soccer: {
@@ -77,21 +75,15 @@ const LEAGUE_MAPPING = {
   }
 };
 
-async function fetchOddsFromAPISports(sport, leagueName) {
-  // Si ya falló muchas veces, no intentar más (ahorrar requests)
-  if (apiSportsFailures >= MAX_FAILURES) {
-    console.log('⚠️ API-Sports desactivada por fallos consecutivos. Usando cuotas simuladas.');
+async function fetchStandingsFromAPISports(sport, leagueName) {
+  if (!LEAGUE_MAPPING[sport] || !LEAGUE_MAPPING[sport][leagueName]) {
     return null;
   }
   
-  if (!LEAGUE_MAPPING[sport] || !LEAGUE_MAPPING[sport][leagueName]) {
-    return null; // Sin mapeo = usar simuladas
-  }
-  
   const leagueId = LEAGUE_MAPPING[sport][leagueName];
-  const cacheKey = `odds_${sport}_${leagueId}`;
-  const cached = API_SPORTS_CACHE[cacheKey];
-  if (cached && Date.now() - cached.timestamp < ODDS_CACHE_TTL) {
+  const cacheKey = `standings_${sport}_${leagueId}`;
+  const cached = STANDINGS_CACHE[cacheKey];
+  if (cached && Date.now() - cached.timestamp < STANDINGS_TTL) {
     return cached.data;
   }
   
@@ -107,9 +99,8 @@ async function fetchOddsFromAPISports(sport, leagueName) {
   
   try {
     const season = sport === 'soccer' ? 2025 : (sport === 'basketball' ? '2025-2026' : 2025);
-    const url = `https://${domain}.api-sports.io/odds?league=${leagueId}&season=${season}`;
+    const url = `https://${domain}.api-sports.io/standings?league=${leagueId}&season=${season}`;
     
-    // Timeout de 5 segundos para no colgarse
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
@@ -122,73 +113,76 @@ async function fetchOddsFromAPISports(sport, leagueName) {
     
     const data = await res.json();
     
-    // Verificar si la respuesta tiene errores
     if (data.errors && Object.keys(data.errors).length > 0) {
       console.log('⚠️ API-Sports error:', data.errors);
-      apiSportsFailures++;
       return null;
     }
     
-    // Reiniciar contador de fallos si funciona
-    apiSportsFailures = 0;
-    
-    API_SPORTS_CACHE[cacheKey] = { data: data.response, timestamp: Date.now() };
-    return data.response;
-    
-  } catch(e) {
-    console.log('❌ API-Sports caída o error:', e.message);
-    apiSportsFailures++;
-    return null; // Fallback silencioso a cuotas simuladas
-  }
-}
-
-// ==================== CÁLCULO DE CUOTAS ====================
-function calcularCuotas(homeRank, awayRank, sport, apiOdds, homeTeam, awayTeam) {
-  // Buscar cuotas específicas del partido en API-Sports
-  if (apiOdds && apiOdds.length > 0) {
-    for (const match of apiOdds) {
-      if (match.teams.home.name === homeTeam && match.teams.away.name === awayTeam) {
-        const bookmakers = match.bookmakers || [];
-        if (bookmakers.length > 0) {
-          const bets = bookmakers[0].bets || [];
-          const homeBet = bets.find(b => b.name === 'Home' || b.name === 'Match Winner');
-          const awayBet = bets.find(b => b.name === 'Away');
-          const drawBet = bets.find(b => b.name === 'Draw');
-          
-          if (homeBet && awayBet) {
-            return {
-              cuota_local: parseFloat(homeBet.values[0]?.odd || 2.0),
-              cuota_visitante: parseFloat(awayBet.values[0]?.odd || 2.0),
-              cuota_empate: drawBet ? parseFloat(drawBet.values[0]?.odd) : null
-            };
-          }
+    // Construir mapa de equipo -> posición (ranking)
+    const rankings = {};
+    if (data.response && data.response.length > 0) {
+      const standings = data.response[0]?.league?.standings || [];
+      for (const group of standings) {
+        for (const team of group) {
+          const teamName = team.team.name;
+          const rank = team.rank;
+          rankings[teamName] = rank;
         }
       }
     }
+    
+    STANDINGS_CACHE[cacheKey] = { data: rankings, timestamp: Date.now() };
+    return rankings;
+    
+  } catch(e) {
+    console.log('❌ API-Sports caída:', e.message);
+    return null;
   }
+}
+
+function getTeamRank(teamName, rankings) {
+  if (!rankings) return 50;
   
-  // Fallback: cálculo simulado
+  // Buscar coincidencia exacta o parcial
+  for (const name in rankings) {
+    if (teamName.includes(name) || name.includes(teamName)) {
+      return rankings[name];
+    }
+  }
+  return 50;
+}
+
+// ==================== CÁLCULO DE CUOTAS DINÁMICAS ====================
+function calcularCuotas(homeRank, awayRank, sport) {
   const hr = homeRank || 50;
   const ar = awayRank || 50;
   
-  const LOCAL_ADVANTAGE = 0.15;
-  const totalRank = hr + ar;
-  let homeStrength = ar / totalRank;
-  let awayStrength = hr / totalRank;
+  // A menor ranking (1° = mejor), mayor probabilidad de ganar
+  // Invertir: 1° -> 100%, 20° -> 5%
+  const maxRank = Math.max(hr, ar, 20);
+  const homeStrength = 1 - (hr / maxRank) * 0.7;
+  const awayStrength = 1 - (ar / maxRank) * 0.7;
   
-  homeStrength = homeStrength * (1 + LOCAL_ADVANTAGE);
-  awayStrength = awayStrength * (1 - LOCAL_ADVANTAGE);
+  const LOCAL_ADVANTAGE = 0.12;
   
-  const total = homeStrength + awayStrength;
-  let homeProb = homeStrength / total;
-  let awayProb = awayStrength / total;
+  let homeProb = homeStrength / (homeStrength + awayStrength);
+  let awayProb = awayStrength / (homeStrength + awayStrength);
+  
+  // Ventaja localía
+  homeProb = homeProb * (1 + LOCAL_ADVANTAGE);
+  awayProb = awayProb * (1 - LOCAL_ADVANTAGE);
+  
+  // Normalizar
+  const total = homeProb + awayProb;
+  homeProb = homeProb / total;
+  awayProb = awayProb / total;
   
   let drawProb = 0;
   if (sport === 'soccer') {
     const diff = Math.abs(hr - ar);
-    if (diff < 10) drawProb = 0.28;
-    else if (diff < 20) drawProb = 0.24;
-    else if (diff < 30) drawProb = 0.20;
+    if (diff <= 2) drawProb = 0.28;
+    else if (diff <= 5) drawProb = 0.24;
+    else if (diff <= 10) drawProb = 0.20;
     else drawProb = 0.16;
     
     homeProb = homeProb * (1 - drawProb);
@@ -202,9 +196,9 @@ function calcularCuotas(homeRank, awayRank, sport, apiOdds, homeTeam, awayTeam) 
   const drawOdds = sport === 'soccer' ? parseFloat((1 / drawProb * MARGIN).toFixed(2)) : null;
   
   return {
-    cuota_local: Math.max(1.20, Math.min(8.00, homeOdds)),
-    cuota_visitante: Math.max(1.20, Math.min(8.00, awayOdds)),
-    cuota_empate: drawOdds ? Math.max(1.50, Math.min(6.00, drawOdds)) : null
+    cuota_local: Math.max(1.15, Math.min(9.00, homeOdds)),
+    cuota_visitante: Math.max(1.15, Math.min(9.00, awayOdds)),
+    cuota_empate: drawOdds ? Math.max(1.40, Math.min(7.00, drawOdds)) : null
   };
 }
 
@@ -217,11 +211,11 @@ function generateExtraMarkets(homeRank, awayRank, sport) {
   const avgRank = (hr + ar) / 2;
   const MARGIN = 0.92;
   
-  const overProb = avgRank < 25 ? 0.58 : avgRank < 40 ? 0.52 : avgRank < 60 ? 0.45 : 0.38;
+  const overProb = avgRank <= 5 ? 0.58 : avgRank <= 10 ? 0.52 : avgRank <= 15 ? 0.45 : 0.38;
   const over = parseFloat((1 / overProb * MARGIN).toFixed(2));
   const under = parseFloat((1 / (1 - overProb) * MARGIN).toFixed(2));
   
-  const bttsProb = (hr < 40 && ar < 40) ? 0.55 : (hr > 60 || ar > 60) ? 0.40 : 0.48;
+  const bttsProb = (hr <= 5 && ar <= 5) ? 0.55 : (hr > 15 || ar > 15) ? 0.40 : 0.48;
   const bttsYes = parseFloat((1 / bttsProb * MARGIN).toFixed(2));
   const bttsNo = parseFloat((1 / (1 - bttsProb) * MARGIN).toFixed(2));
   
@@ -236,9 +230,8 @@ async function parseEvents(espnData, sport) {
   const events = [];
   if (!espnData || !espnData.events) return events;
 
-  // Obtener cuotas de API-Sports para esta liga
   const leagueName = espnData.leagues?.[0]?.name;
-  const apiOdds = await fetchOddsFromAPISports(sport, leagueName);
+  const rankings = await fetchStandingsFromAPISports(sport, leagueName);
 
   for (const ev of espnData.events) {
     try {
@@ -261,13 +254,13 @@ async function parseEvents(espnData, sport) {
       const minute = ev.status?.displayClock || '';
       const period = ev.status?.period || 0;
 
-      const homeRank = parseInt(home.curatedRank?.current || 50);
-      const awayRank = parseInt(away.curatedRank?.current || 50);
+      const homeTeamName = home.team?.displayName || '';
+      const awayTeamName = away.team?.displayName || '';
       
-      const cuotas = calcularCuotas(
-        homeRank, awayRank, sport, apiOdds,
-        home.team?.displayName, away.team?.displayName
-      );
+      const homeRank = getTeamRank(homeTeamName, rankings);
+      const awayRank = getTeamRank(awayTeamName, rankings);
+      
+      const cuotas = calcularCuotas(homeRank, awayRank, sport);
       
       let estado = isLive ? 'live' : 'scheduled';
       if (isFinal) estado = 'final';
@@ -277,8 +270,8 @@ async function parseEvents(espnData, sport) {
         sport,
         liga: leagueName || sport,
         ligaLogo: espnData.leagues?.[0]?.logos?.[0]?.href || null,
-        local: home.team?.displayName || 'Local',
-        visitante: away.team?.displayName || 'Visitante',
+        local: homeTeamName || 'Local',
+        visitante: awayTeamName || 'Visitante',
         homeLogo: home.team?.logo || null,
         awayLogo: away.team?.logo || null,
         marcador: isLive || isFinal ? `${homeScore}-${awayScore}` : null,
@@ -304,7 +297,7 @@ async function parseEvents(espnData, sport) {
   return events;
 }
 
-// ==================== ENDPOINT DE ESTADÍSTICAS EN VIVO (TODOS LOS DEPORTES) ====================
+// ==================== ENDPOINT DE ESTADÍSTICAS EN VIVO ====================
 app.get('/api/stats/:eventId', async (req, res) => {
   const { eventId } = req.params;
   const { sport } = req.query;
@@ -323,12 +316,7 @@ app.get('/api/stats/:eventId', async (req, res) => {
     const summaryPath = `${sport}/summary?event=${eventId}`;
     const data = await fetchESPN(summaryPath);
     
-    let stats = {
-      eventId,
-      sport,
-      local: {},
-      visitante: {}
-    };
+    let stats = { eventId, sport, local: {}, visitante: {} };
     
     if (data && data.boxscore) {
       const teams = data.boxscore.teams || [];
@@ -339,9 +327,9 @@ app.get('/api/stats/:eventId', async (req, res) => {
         const homeStats = home.statistics || [];
         const awayStats = away.statistics || [];
         
-        const extractStat = (statArray, statName) => {
-          const found = statArray.find(s => s.name === statName);
-          return found ? found.displayValue : (statName.includes('Pct') ? '0%' : 0);
+        const extractStat = (arr, name) => {
+          const found = arr.find(s => s.name === name);
+          return found ? found.displayValue : (name.includes('Pct') ? '0%' : 0);
         };
         
         if (sport === 'soccer') {
@@ -368,76 +356,39 @@ app.get('/api/stats/:eventId', async (req, res) => {
             puntos: home.score || '0',
             rebotes: extractStat(homeStats, 'totalRebounds'),
             asistencias: extractStat(homeStats, 'assists'),
-            robos: extractStat(homeStats, 'steals'),
-            tapones: extractStat(homeStats, 'blocks'),
-            perdidas: extractStat(homeStats, 'turnovers'),
             fgPct: extractStat(homeStats, 'fieldGoalPct'),
-            threePct: extractStat(homeStats, 'threePointPct'),
-            ftPct: extractStat(homeStats, 'freeThrowPct')
+            threePct: extractStat(homeStats, 'threePointPct')
           };
           stats.visitante = {
             puntos: away.score || '0',
             rebotes: extractStat(awayStats, 'totalRebounds'),
             asistencias: extractStat(awayStats, 'assists'),
-            robos: extractStat(awayStats, 'steals'),
-            tapones: extractStat(awayStats, 'blocks'),
-            perdidas: extractStat(awayStats, 'turnovers'),
             fgPct: extractStat(awayStats, 'fieldGoalPct'),
-            threePct: extractStat(awayStats, 'threePointPct'),
-            ftPct: extractStat(awayStats, 'freeThrowPct')
+            threePct: extractStat(awayStats, 'threePointPct')
           };
         } else if (sport === 'football') {
           stats.local = {
             puntos: home.score || '0',
             yardasTotales: extractStat(homeStats, 'totalYards'),
             yardasPase: extractStat(homeStats, 'passingYards'),
-            yardasCarrera: extractStat(homeStats, 'rushingYards'),
-            primeraOportunidad: extractStat(homeStats, 'firstDowns'),
-            terceraEficiencia: extractStat(homeStats, 'thirdDownConvPct'),
-            posesion: extractStat(homeStats, 'possessionTime')
+            yardasCarrera: extractStat(homeStats, 'rushingYards')
           };
           stats.visitante = {
             puntos: away.score || '0',
             yardasTotales: extractStat(awayStats, 'totalYards'),
             yardasPase: extractStat(awayStats, 'passingYards'),
-            yardasCarrera: extractStat(awayStats, 'rushingYards'),
-            primeraOportunidad: extractStat(awayStats, 'firstDowns'),
-            terceraEficiencia: extractStat(awayStats, 'thirdDownConvPct'),
-            posesion: extractStat(awayStats, 'possessionTime')
-          };
-        } else if (sport === 'hockey') {
-          stats.local = {
-            goles: home.score || '0',
-            tiros: extractStat(homeStats, 'shotsOnGoal'),
-            powerPlay: extractStat(homeStats, 'powerPlayPct'),
-            penalties: extractStat(homeStats, 'penaltyMinutes'),
-            hits: extractStat(homeStats, 'hits'),
-            faceoffPct: extractStat(homeStats, 'faceoffWinPct')
-          };
-          stats.visitante = {
-            goles: away.score || '0',
-            tiros: extractStat(awayStats, 'shotsOnGoal'),
-            powerPlay: extractStat(awayStats, 'powerPlayPct'),
-            penalties: extractStat(awayStats, 'penaltyMinutes'),
-            hits: extractStat(awayStats, 'hits'),
-            faceoffPct: extractStat(awayStats, 'faceoffWinPct')
+            yardasCarrera: extractStat(awayStats, 'rushingYards')
           };
         } else if (sport === 'baseball') {
           stats.local = {
             carreras: home.score || '0',
             hits: extractStat(homeStats, 'hits'),
-            errores: extractStat(homeStats, 'errors'),
-            avgBateo: extractStat(homeStats, 'battingAvg'),
-            obp: extractStat(homeStats, 'onBasePct'),
-            slg: extractStat(homeStats, 'sluggingPct')
+            errores: extractStat(homeStats, 'errors')
           };
           stats.visitante = {
             carreras: away.score || '0',
             hits: extractStat(awayStats, 'hits'),
-            errores: extractStat(awayStats, 'errors'),
-            avgBateo: extractStat(awayStats, 'battingAvg'),
-            obp: extractStat(awayStats, 'onBasePct'),
-            slg: extractStat(awayStats, 'sluggingPct')
+            errores: extractStat(awayStats, 'errors')
           };
         }
       }
@@ -448,7 +399,6 @@ app.get('/api/stats/:eventId', async (req, res) => {
     res.json(response);
     
   } catch(e) {
-    console.error('Error obteniendo stats:', e);
     res.status(500).json({ error: 'No se pudieron obtener las estadísticas' });
   }
 });
@@ -456,7 +406,7 @@ app.get('/api/stats/:eventId', async (req, res) => {
 // ==================== ENDPOINTS PRINCIPALES ====================
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'BetGroup Pro API v4.0 — ESPN + API-Sports con Respaldo' });
+  res.json({ status: 'online', message: 'BetGroup Pro API v5.0 — Ranking Real + Cuotas Dinámicas' });
 });
 
 app.get('/api/health', (req, res) => {
@@ -514,5 +464,5 @@ app.get('/api/fixtures', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ BetGroup Pro Proxy v4.0 en puerto ${PORT} - API-Sports con respaldo`);
+  console.log(`✅ BetGroup Pro Proxy v5.0 en puerto ${PORT} - Ranking Real`);
 });
