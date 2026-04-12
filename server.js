@@ -47,46 +47,84 @@ function fetchESPN(path) {
   });
 }
 
-// ===== NUEVO: Generador de cuotas para mercados adicionales =====
-function generateExtraMarkets(homeRank, awayRank, sport) {
-  const avgRank = (homeRank + awayRank) / 2;
-  const MARGEN_CASA = 0.92; // 8% de margen para la casa
+// ==================== CÁLCULO DE CUOTAS DINÁMICAS ====================
+function calcularCuotas(homeRank, awayRank, sport) {
+  // Si no hay ranking, usar valor medio (50)
+  const hr = homeRank || 50;
+  const ar = awayRank || 50;
   
-  // Solo para fútbol
-  if (sport !== 'soccer') return null;
+  // Ventaja de localía: +15% probabilidad para el local
+  const LOCAL_ADVANTAGE = 0.15;
   
-  // Over/Under 2.5 goles
-  const overProb = avgRank < 30 ? 0.55 : avgRank > 60 ? 0.40 : 0.48;
-  const over_2_5 = parseFloat((1 / overProb * MARGEN_CASA).toFixed(2));
-  const under_2_5 = parseFloat((1 / (1 - overProb) * MARGEN_CASA).toFixed(2));
+  // Calcular fuerza relativa (0-1)
+  const totalRank = hr + ar;
+  let homeStrength = ar / totalRank; // El rival más débil da más fuerza
+  let awayStrength = hr / totalRank;
   
-  // Ambos equipos marcan (BTTS)
-  const bttsProb = avgRank < 25 ? 0.58 : avgRank > 65 ? 0.38 : 0.48;
-  const btts_yes = parseFloat((1 / bttsProb * MARGEN_CASA).toFixed(2));
-  const btts_no = parseFloat((1 / (1 - bttsProb) * MARGEN_CASA).toFixed(2));
+  // Aplicar ventaja localía
+  homeStrength = homeStrength * (1 + LOCAL_ADVANTAGE);
+  awayStrength = awayStrength * (1 - LOCAL_ADVANTAGE);
   
-  // Doble oportunidad
-  const homeProb = 1 / (2.0 - (awayRank - homeRank) / 20 * 0.15);
-  const awayProb = 1 / (2.0 + (awayRank - homeRank) / 20 * 0.15);
-  const drawProb = sport === 'soccer' ? 0.28 : 0;
+  // Normalizar para que sumen 1 (sin empate)
+  const total = homeStrength + awayStrength;
+  let homeProb = homeStrength / total;
+  let awayProb = awayStrength / total;
   
-  const doble_1x = parseFloat((1 / (homeProb + drawProb) * MARGEN_CASA).toFixed(2));
-  const doble_x2 = parseFloat((1 / (awayProb + drawProb) * MARGEN_CASA).toFixed(2));
-  const doble_12 = parseFloat((1 / (homeProb + awayProb) * MARGEN_CASA).toFixed(2));
+  // Para fútbol, añadir probabilidad de empate (depende de qué tan parejos sean)
+  let drawProb = 0;
+  if (sport === 'soccer') {
+    const diff = Math.abs(hr - ar);
+    if (diff < 10) drawProb = 0.28;      // Muy parejos
+    else if (diff < 20) drawProb = 0.24; // Algo parejos
+    else if (diff < 30) drawProb = 0.20; // Diferencia media
+    else drawProb = 0.16;                // Muy desiguales
+    
+    // Redistribuir probabilidades
+    homeProb = homeProb * (1 - drawProb);
+    awayProb = awayProb * (1 - drawProb);
+  }
   
-  // Hándicap asiático (-1.5, +1.5)
-  const handicap_home = parseFloat((homeProb * 1.8 * MARGEN_CASA).toFixed(2));
-  const handicap_away = parseFloat((awayProb * 1.8 * MARGEN_CASA).toFixed(2));
+  // Margen de la casa (6%)
+  const MARGIN = 0.94;
+  
+  // Convertir a cuotas
+  const homeOdds = parseFloat((1 / homeProb * MARGIN).toFixed(2));
+  const awayOdds = parseFloat((1 / awayProb * MARGIN).toFixed(2));
+  const drawOdds = sport === 'soccer' ? parseFloat((1 / drawProb * MARGIN).toFixed(2)) : null;
   
   return {
-    over_under: { over: over_2_5, under: under_2_5 },
-    both_to_score: { yes: btts_yes, no: btts_no },
-    double_chance: { home_draw: doble_1x, away_draw: doble_x2, home_away: doble_12 },
-    handicap: { home_minus_1_5: handicap_home, away_plus_1_5: handicap_away }
+    cuota_local: Math.max(1.20, Math.min(8.00, homeOdds)),
+    cuota_visitante: Math.max(1.20, Math.min(8.00, awayOdds)),
+    cuota_empate: drawOdds ? Math.max(1.50, Math.min(6.00, drawOdds)) : null
   };
 }
 
-// ===== MODIFICADO: PARSER DE EVENTOS (añade mercados extra) =====
+// ==================== MERCADOS EXTRA ====================
+function generateExtraMarkets(homeRank, awayRank, sport) {
+  if (sport !== 'soccer') return null;
+  
+  const hr = homeRank || 50;
+  const ar = awayRank || 50;
+  const avgRank = (hr + ar) / 2;
+  const MARGIN = 0.92;
+  
+  // Over/Under 2.5 - basado en ranking (mejores equipos = más goles)
+  const overProb = avgRank < 25 ? 0.58 : avgRank < 40 ? 0.52 : avgRank < 60 ? 0.45 : 0.38;
+  const over = parseFloat((1 / overProb * MARGIN).toFixed(2));
+  const under = parseFloat((1 / (1 - overProb) * MARGIN).toFixed(2));
+  
+  // BTTS - Ambos marcan
+  const bttsProb = (hr < 40 && ar < 40) ? 0.55 : (hr > 60 || ar > 60) ? 0.40 : 0.48;
+  const bttsYes = parseFloat((1 / bttsProb * MARGIN).toFixed(2));
+  const bttsNo = parseFloat((1 / (1 - bttsProb) * MARGIN).toFixed(2));
+  
+  return {
+    over_under: { over, under },
+    both_to_score: { yes: bttsYes, no: bttsNo }
+  };
+}
+
+// ==================== PARSER DE EVENTOS ====================
 function parseEvents(espnData, sport) {
   const events = [];
   if (!espnData || !espnData.events) return events;
@@ -112,15 +150,13 @@ function parseEvents(espnData, sport) {
       const minute = ev.status?.displayClock || '';
       const period = ev.status?.period || 0;
 
-      // Cuotas realistas basadas en ranking
+      // Obtener ranking real de ESPN
       const homeRank = parseInt(home.curatedRank?.current || 50);
       const awayRank = parseInt(away.curatedRank?.current || 50);
-      const diff = (awayRank - homeRank) / 20;
-      const baseHome = Math.max(1.30, Math.min(5.00, parseFloat((2.0 - diff * 0.15).toFixed(2))));
-      const baseDraw = sport === 'soccer' ? parseFloat((3.0 + Math.random() * 0.6).toFixed(2)) : null;
-      const baseAway = Math.max(1.30, Math.min(5.00, parseFloat((2.0 + diff * 0.15).toFixed(2))));
-
-      // ===== NUEVO: Determinar estado final =====
+      
+      // Calcular cuotas dinámicas
+      const cuotas = calcularCuotas(homeRank, awayRank, sport);
+      
       let estado = isLive ? 'live' : 'scheduled';
       if (isFinal) estado = 'final';
 
@@ -138,19 +174,22 @@ function parseEvents(espnData, sport) {
         periodo: period,
         estado: estado,
         horaInicio: ev.date || null,
-        cuota_local: baseHome,
-        cuota_empate: baseDraw,
-        cuota_visitante: baseAway
+        cuota_local: cuotas.cuota_local,
+        cuota_empate: cuotas.cuota_empate,
+        cuota_visitante: cuotas.cuota_visitante,
+        // Rankings para transparencia
+        homeRank: homeRank,
+        awayRank: awayRank
       };
 
-      // ===== NUEVO: Añadir mercados extra para fútbol =====
+      // Mercados extra para fútbol
       if (sport === 'soccer') {
         const extra = generateExtraMarkets(homeRank, awayRank, sport);
         if (extra) Object.assign(eventObj, extra);
       }
 
       events.push(eventObj);
-    } catch(e) { /* evento inválido, ignorar */ }
+    } catch(e) { /* evento inválido */ }
   }
   return events;
 }
@@ -158,7 +197,7 @@ function parseEvents(espnData, sport) {
 // ==================== ENDPOINTS ====================
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'BetGroup Pro API v2.1 — ESPN Real Data + Extra Markets' });
+  res.json({ status: 'online', message: 'BetGroup Pro API v3.0 — Cuotas Dinámicas' });
 });
 
 app.get('/api/health', (req, res) => {
@@ -170,18 +209,18 @@ app.get('/api/fixtures', async (req, res) => {
   if (cached) return res.json(cached);
 
   const deportes = [
-    { path: 'soccer/esp.1/scoreboard',                  sport: 'soccer' },
-    { path: 'soccer/eng.1/scoreboard',                  sport: 'soccer' },
-    { path: 'soccer/ger.1/scoreboard',                  sport: 'soccer' },
-    { path: 'soccer/ita.1/scoreboard',                  sport: 'soccer' },
-    { path: 'soccer/fra.1/scoreboard',                  sport: 'soccer' },
-    { path: 'soccer/uefa.champions/scoreboard',         sport: 'soccer' },
-    { path: 'soccer/conmebol.libertadores/scoreboard',  sport: 'soccer' },
-    { path: 'soccer/usa.1/scoreboard',                  sport: 'soccer' },
-    { path: 'basketball/nba/scoreboard',                sport: 'basketball' },
-    { path: 'football/nfl/scoreboard',                  sport: 'football' },
-    { path: 'hockey/nhl/scoreboard',                    sport: 'hockey' },
-    { path: 'baseball/mlb/scoreboard',                  sport: 'baseball' },
+    { path: 'soccer/esp.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/eng.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/ger.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/ita.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/fra.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/uefa.champions/scoreboard', sport: 'soccer' },
+    { path: 'soccer/conmebol.libertadores/scoreboard', sport: 'soccer' },
+    { path: 'soccer/usa.1/scoreboard', sport: 'soccer' },
+    { path: 'basketball/nba/scoreboard', sport: 'basketball' },
+    { path: 'football/nfl/scoreboard', sport: 'football' },
+    { path: 'hockey/nhl/scoreboard', sport: 'hockey' },
+    { path: 'baseball/mlb/scoreboard', sport: 'baseball' },
   ];
 
   const todos = [];
@@ -217,5 +256,5 @@ app.get('/api/fixtures', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ BetGroup Pro Proxy v2.1 en puerto ${PORT}`);
+  console.log(`✅ BetGroup Pro Proxy v3.0 en puerto ${PORT}`);
 });
