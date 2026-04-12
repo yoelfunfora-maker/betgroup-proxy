@@ -47,7 +47,46 @@ function fetchESPN(path) {
   });
 }
 
-// ==================== PARSER DE EVENTOS ====================
+// ===== NUEVO: Generador de cuotas para mercados adicionales =====
+function generateExtraMarkets(homeRank, awayRank, sport) {
+  const avgRank = (homeRank + awayRank) / 2;
+  const MARGEN_CASA = 0.92; // 8% de margen para la casa
+  
+  // Solo para fútbol
+  if (sport !== 'soccer') return null;
+  
+  // Over/Under 2.5 goles
+  const overProb = avgRank < 30 ? 0.55 : avgRank > 60 ? 0.40 : 0.48;
+  const over_2_5 = parseFloat((1 / overProb * MARGEN_CASA).toFixed(2));
+  const under_2_5 = parseFloat((1 / (1 - overProb) * MARGEN_CASA).toFixed(2));
+  
+  // Ambos equipos marcan (BTTS)
+  const bttsProb = avgRank < 25 ? 0.58 : avgRank > 65 ? 0.38 : 0.48;
+  const btts_yes = parseFloat((1 / bttsProb * MARGEN_CASA).toFixed(2));
+  const btts_no = parseFloat((1 / (1 - bttsProb) * MARGEN_CASA).toFixed(2));
+  
+  // Doble oportunidad
+  const homeProb = 1 / (2.0 - (awayRank - homeRank) / 20 * 0.15);
+  const awayProb = 1 / (2.0 + (awayRank - homeRank) / 20 * 0.15);
+  const drawProb = sport === 'soccer' ? 0.28 : 0;
+  
+  const doble_1x = parseFloat((1 / (homeProb + drawProb) * MARGEN_CASA).toFixed(2));
+  const doble_x2 = parseFloat((1 / (awayProb + drawProb) * MARGEN_CASA).toFixed(2));
+  const doble_12 = parseFloat((1 / (homeProb + awayProb) * MARGEN_CASA).toFixed(2));
+  
+  // Hándicap asiático (-1.5, +1.5)
+  const handicap_home = parseFloat((homeProb * 1.8 * MARGEN_CASA).toFixed(2));
+  const handicap_away = parseFloat((awayProb * 1.8 * MARGEN_CASA).toFixed(2));
+  
+  return {
+    over_under: { over: over_2_5, under: under_2_5 },
+    both_to_score: { yes: btts_yes, no: btts_no },
+    double_chance: { home_draw: doble_1x, away_draw: doble_x2, home_away: doble_12 },
+    handicap: { home_minus_1_5: handicap_home, away_plus_1_5: handicap_away }
+  };
+}
+
+// ===== MODIFICADO: PARSER DE EVENTOS (añade mercados extra) =====
 function parseEvents(espnData, sport) {
   const events = [];
   if (!espnData || !espnData.events) return events;
@@ -64,7 +103,9 @@ function parseEvents(espnData, sport) {
       const status = ev.status?.type;
       const isLive = status?.state === 'in';
       const isScheduled = status?.state === 'pre';
-      if (!isLive && !isScheduled) continue;
+      const isFinal = status?.state === 'post' || status?.completed === true;
+      
+      if (!isLive && !isScheduled && !isFinal) continue;
 
       const homeScore = home.score || '0';
       const awayScore = away.score || '0';
@@ -79,7 +120,11 @@ function parseEvents(espnData, sport) {
       const baseDraw = sport === 'soccer' ? parseFloat((3.0 + Math.random() * 0.6).toFixed(2)) : null;
       const baseAway = Math.max(1.30, Math.min(5.00, parseFloat((2.0 + diff * 0.15).toFixed(2))));
 
-      events.push({
+      // ===== NUEVO: Determinar estado final =====
+      let estado = isLive ? 'live' : 'scheduled';
+      if (isFinal) estado = 'final';
+
+      const eventObj = {
         id: ev.id,
         sport,
         liga: espnData.leagues?.[0]?.name || sport,
@@ -88,15 +133,23 @@ function parseEvents(espnData, sport) {
         visitante: away.team?.displayName || 'Visitante',
         homeLogo: home.team?.logo || null,
         awayLogo: away.team?.logo || null,
-        marcador: isLive ? `${homeScore}-${awayScore}` : null,
+        marcador: isLive || isFinal ? `${homeScore}-${awayScore}` : null,
         minuto: isLive ? minute : null,
         periodo: period,
-        estado: isLive ? 'live' : 'scheduled',
+        estado: estado,
         horaInicio: ev.date || null,
         cuota_local: baseHome,
         cuota_empate: baseDraw,
         cuota_visitante: baseAway
-      });
+      };
+
+      // ===== NUEVO: Añadir mercados extra para fútbol =====
+      if (sport === 'soccer') {
+        const extra = generateExtraMarkets(homeRank, awayRank, sport);
+        if (extra) Object.assign(eventObj, extra);
+      }
+
+      events.push(eventObj);
     } catch(e) { /* evento inválido, ignorar */ }
   }
   return events;
@@ -105,7 +158,7 @@ function parseEvents(espnData, sport) {
 // ==================== ENDPOINTS ====================
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'BetGroup Pro API v2.0 — ESPN Real Data' });
+  res.json({ status: 'online', message: 'BetGroup Pro API v2.1 — ESPN Real Data + Extra Markets' });
 });
 
 app.get('/api/health', (req, res) => {
@@ -154,6 +207,7 @@ app.get('/api/fixtures', async (req, res) => {
     timestamp: new Date().toISOString(),
     total: todos.length,
     en_vivo: todos.filter(e => e.estado === 'live').length,
+    finalizados: todos.filter(e => e.estado === 'final').length,
     proximos: todos.filter(e => e.estado === 'scheduled').length,
     data: todos
   };
@@ -163,5 +217,5 @@ app.get('/api/fixtures', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
+  console.log(`✅ BetGroup Pro Proxy v2.1 en puerto ${PORT}`);
 });
