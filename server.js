@@ -10,7 +10,8 @@ app.use(express.json());
 
 // ==================== CACHÉ INTELIGENTE ====================
 const cache = {};
-const CACHE_TTL = 3 * 60 * 1000;
+const CACHE_TTL = 3 * 60 * 1000; // 3 minutos
+const STATS_CACHE_TTL = 30 * 1000; // 30 segundos para stats en vivo
 
 function getCache(key) {
   const entry = cache[key];
@@ -179,10 +180,161 @@ function parseEvents(espnData, sport) {
   return events;
 }
 
-// ==================== ENDPOINTS ====================
+// ==================== ENDPOINT DE ESTADÍSTICAS EN VIVO (TODOS LOS DEPORTES) ====================
+app.get('/api/stats/:eventId', async (req, res) => {
+  const { eventId } = req.params;
+  const { sport } = req.query;
+  
+  if (!sport) {
+    return res.status(400).json({ error: 'Se requiere el parámetro sport' });
+  }
+  
+  const cacheKey = `stats_${eventId}`;
+  const cached = cache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < STATS_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+  
+  try {
+    const summaryPath = `${sport}/summary?event=${eventId}`;
+    const data = await fetchESPN(summaryPath);
+    
+    // Estadísticas base (varían según deporte)
+    let stats = {
+      eventId,
+      sport,
+      local: {},
+      visitante: {}
+    };
+    
+    if (data && data.boxscore) {
+      const teams = data.boxscore.teams || [];
+      const home = teams.find(t => t.homeAway === 'home');
+      const away = teams.find(t => t.homeAway === 'away');
+      
+      if (home && away) {
+        const homeStats = home.statistics || [];
+        const awayStats = away.statistics || [];
+        
+        // Función helper para extraer estadística
+        const extractStat = (statArray, statName) => {
+          const found = statArray.find(s => s.name === statName);
+          return found ? found.displayValue : (statName.includes('Pct') ? '0%' : 0);
+        };
+        
+        if (sport === 'soccer') {
+          stats.local = {
+            posesion: extractStat(homeStats, 'possessionPct'),
+            tiros: extractStat(homeStats, 'totalShots'),
+            tirosPuerta: extractStat(homeStats, 'shotsOnTarget'),
+            faltas: extractStat(homeStats, 'fouls'),
+            corners: extractStat(homeStats, 'cornerKicks'),
+            amarillas: extractStat(homeStats, 'yellowCards'),
+            rojas: extractStat(homeStats, 'redCards')
+          };
+          stats.visitante = {
+            posesion: extractStat(awayStats, 'possessionPct'),
+            tiros: extractStat(awayStats, 'totalShots'),
+            tirosPuerta: extractStat(awayStats, 'shotsOnTarget'),
+            faltas: extractStat(awayStats, 'fouls'),
+            corners: extractStat(awayStats, 'cornerKicks'),
+            amarillas: extractStat(awayStats, 'yellowCards'),
+            rojas: extractStat(awayStats, 'redCards')
+          };
+        } else if (sport === 'basketball') {
+          stats.local = {
+            puntos: home.score || '0',
+            rebotes: extractStat(homeStats, 'totalRebounds'),
+            asistencias: extractStat(homeStats, 'assists'),
+            robos: extractStat(homeStats, 'steals'),
+            tapones: extractStat(homeStats, 'blocks'),
+            perdidas: extractStat(homeStats, 'turnovers'),
+            fgPct: extractStat(homeStats, 'fieldGoalPct'),
+            threePct: extractStat(homeStats, 'threePointPct'),
+            ftPct: extractStat(homeStats, 'freeThrowPct')
+          };
+          stats.visitante = {
+            puntos: away.score || '0',
+            rebotes: extractStat(awayStats, 'totalRebounds'),
+            asistencias: extractStat(awayStats, 'assists'),
+            robos: extractStat(awayStats, 'steals'),
+            tapones: extractStat(awayStats, 'blocks'),
+            perdidas: extractStat(awayStats, 'turnovers'),
+            fgPct: extractStat(awayStats, 'fieldGoalPct'),
+            threePct: extractStat(awayStats, 'threePointPct'),
+            ftPct: extractStat(awayStats, 'freeThrowPct')
+          };
+        } else if (sport === 'football') {
+          stats.local = {
+            puntos: home.score || '0',
+            yardasTotales: extractStat(homeStats, 'totalYards'),
+            yardasPase: extractStat(homeStats, 'passingYards'),
+            yardasCarrera: extractStat(homeStats, 'rushingYards'),
+            primeraOportunidad: extractStat(homeStats, 'firstDowns'),
+            terceraEficiencia: extractStat(homeStats, 'thirdDownConvPct'),
+            posesion: extractStat(homeStats, 'possessionTime')
+          };
+          stats.visitante = {
+            puntos: away.score || '0',
+            yardasTotales: extractStat(awayStats, 'totalYards'),
+            yardasPase: extractStat(awayStats, 'passingYards'),
+            yardasCarrera: extractStat(awayStats, 'rushingYards'),
+            primeraOportunidad: extractStat(awayStats, 'firstDowns'),
+            terceraEficiencia: extractStat(awayStats, 'thirdDownConvPct'),
+            posesion: extractStat(awayStats, 'possessionTime')
+          };
+        } else if (sport === 'hockey') {
+          stats.local = {
+            goles: home.score || '0',
+            tiros: extractStat(homeStats, 'shotsOnGoal'),
+            powerPlay: extractStat(homeStats, 'powerPlayPct'),
+            penalties: extractStat(homeStats, 'penaltyMinutes'),
+            hits: extractStat(homeStats, 'hits'),
+            faceoffPct: extractStat(homeStats, 'faceoffWinPct')
+          };
+          stats.visitante = {
+            goles: away.score || '0',
+            tiros: extractStat(awayStats, 'shotsOnGoal'),
+            powerPlay: extractStat(awayStats, 'powerPlayPct'),
+            penalties: extractStat(awayStats, 'penaltyMinutes'),
+            hits: extractStat(awayStats, 'hits'),
+            faceoffPct: extractStat(awayStats, 'faceoffWinPct')
+          };
+        } else if (sport === 'baseball') {
+          stats.local = {
+            carreras: home.score || '0',
+            hits: extractStat(homeStats, 'hits'),
+            errores: extractStat(homeStats, 'errors'),
+            avgBateo: extractStat(homeStats, 'battingAvg'),
+            obp: extractStat(homeStats, 'onBasePct'),
+            slg: extractStat(homeStats, 'sluggingPct')
+          };
+          stats.visitante = {
+            carreras: away.score || '0',
+            hits: extractStat(awayStats, 'hits'),
+            errores: extractStat(awayStats, 'errors'),
+            avgBateo: extractStat(awayStats, 'battingAvg'),
+            obp: extractStat(awayStats, 'onBasePct'),
+            slg: extractStat(awayStats, 'sluggingPct')
+          };
+        }
+      }
+    }
+    
+    const response = { status: 'online', data: stats };
+    cache[cacheKey] = { data: response, timestamp: Date.now() };
+    res.json(response);
+    
+  } catch(e) {
+    console.error('Error obteniendo stats:', e);
+    res.status(500).json({ error: 'No se pudieron obtener las estadísticas' });
+  }
+});
+
+// ==================== ENDPOINTS PRINCIPALES ====================
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'BetGroup Pro API v3.0 — Cuotas Dinámicas' });
+  res.json({ status: 'online', message: 'BetGroup Pro API v3.1 — Cuotas Dinámicas + Stats en Vivo' });
 });
 
 app.get('/api/health', (req, res) => {
@@ -241,5 +393,5 @@ app.get('/api/fixtures', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ BetGroup Pro Proxy v3.0 en puerto ${PORT}`);
+  console.log(`✅ BetGroup Pro Proxy v3.1 en puerto ${PORT}`);
 });
