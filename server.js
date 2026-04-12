@@ -51,7 +51,7 @@ function fetchESPN(path) {
 // ==================== API-SPORTS PARA RANKING REAL ====================
 const API_SPORTS_KEY = '9c6baa24885e4b5c12d33d7530b03996';
 const STANDINGS_CACHE = {};
-const STANDINGS_TTL = 24 * 60 * 60 * 1000; // 24 horas (el ranking no cambia a cada rato)
+const STANDINGS_TTL = 24 * 60 * 60 * 1000;
 
 const LEAGUE_MAPPING = {
   soccer: {
@@ -118,7 +118,6 @@ async function fetchStandingsFromAPISports(sport, leagueName) {
       return null;
     }
     
-    // Construir mapa de equipo -> posición (ranking)
     const rankings = {};
     if (data.response && data.response.length > 0) {
       const standings = data.response[0]?.league?.standings || [];
@@ -143,7 +142,6 @@ async function fetchStandingsFromAPISports(sport, leagueName) {
 function getTeamRank(teamName, rankings) {
   if (!rankings) return 50;
   
-  // Buscar coincidencia exacta o parcial
   for (const name in rankings) {
     if (teamName.includes(name) || name.includes(teamName)) {
       return rankings[name];
@@ -157,8 +155,6 @@ function calcularCuotas(homeRank, awayRank, sport) {
   const hr = homeRank || 50;
   const ar = awayRank || 50;
   
-  // A menor ranking (1° = mejor), mayor probabilidad de ganar
-  // Invertir: 1° -> 100%, 20° -> 5%
   const maxRank = Math.max(hr, ar, 20);
   const homeStrength = 1 - (hr / maxRank) * 0.7;
   const awayStrength = 1 - (ar / maxRank) * 0.7;
@@ -168,11 +164,9 @@ function calcularCuotas(homeRank, awayRank, sport) {
   let homeProb = homeStrength / (homeStrength + awayStrength);
   let awayProb = awayStrength / (homeStrength + awayStrength);
   
-  // Ventaja localía
   homeProb = homeProb * (1 + LOCAL_ADVANTAGE);
   awayProb = awayProb * (1 - LOCAL_ADVANTAGE);
   
-  // Normalizar
   const total = homeProb + awayProb;
   homeProb = homeProb / total;
   awayProb = awayProb / total;
@@ -403,69 +397,6 @@ app.get('/api/stats/:eventId', async (req, res) => {
   }
 });
 
-// ==================== ENDPOINTS PRINCIPALES ====================
-
-app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'BetGroup Pro API v5.0 — Ranking Real + Cuotas Dinámicas' });
-});
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'online', uptime: process.uptime(), timestamp: new Date().toISOString() });
-});
-
-app.get('/api/fixtures', async (req, res) => {
-  const cached = getCache('fixtures');
-  if (cached) return res.json(cached);
-
-  const deportes = [
-    { path: 'soccer/esp.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/eng.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/ger.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/ita.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/fra.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/uefa.champions/scoreboard', sport: 'soccer' },
-    { path: 'soccer/conmebol.libertadores/scoreboard', sport: 'soccer' },
-    { path: 'soccer/usa.1/scoreboard', sport: 'soccer' },
-    { path: 'basketball/nba/scoreboard', sport: 'basketball' },
-    { path: 'football/nfl/scoreboard', sport: 'football' },
-    { path: 'baseball/mlb/scoreboard', sport: 'baseball' },
-  ];
-
-  const todos = [];
-
-  await Promise.allSettled(
-    deportes.map(async ({ path, sport }) => {
-      try {
-        const data = await fetchESPN(path);
-        const events = await parseEvents(data, sport);
-        todos.push(...events);
-      } catch(e) { }
-    })
-  );
-
-  todos.sort((a, b) => {
-    if (a.estado === 'live' && b.estado !== 'live') return -1;
-    if (a.estado !== 'live' && b.estado === 'live') return 1;
-    return 0;
-  });
-
-  const response = {
-    status: 'online',
-    timestamp: new Date().toISOString(),
-    total: todos.length,
-    en_vivo: todos.filter(e => e.estado === 'live').length,
-    finalizados: todos.filter(e => e.estado === 'final').length,
-    proximos: todos.filter(e => e.estado === 'scheduled').length,
-    data: todos
-  };
-
-  setCache('fixtures', response);
-  res.json(response);
-});
-
-app.listen(PORT, () => {
-  console.log(`✅ BetGroup Pro Proxy v5.0 en puerto ${PORT} - Ranking Real`);
-});
 // ==================== ENDPOINT DE RESULTADOS FINALES ====================
 app.get('/api/results', async (req, res) => {
   const cacheKey = 'results_finalizados';
@@ -532,4 +463,68 @@ app.get('/api/results', async (req, res) => {
   
   cache[cacheKey] = { data: response, timestamp: Date.now() };
   res.json(response);
+});
+
+// ==================== ENDPOINTS PRINCIPALES ====================
+
+app.get('/', (req, res) => {
+  res.json({ status: 'online', message: 'BetGroup Pro API v5.1 — Resolución Automática' });
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'online', uptime: process.uptime(), timestamp: new Date().toISOString() });
+});
+
+app.get('/api/fixtures', async (req, res) => {
+  const cached = getCache('fixtures');
+  if (cached) return res.json(cached);
+
+  const deportes = [
+    { path: 'soccer/esp.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/eng.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/ger.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/ita.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/fra.1/scoreboard', sport: 'soccer' },
+    { path: 'soccer/uefa.champions/scoreboard', sport: 'soccer' },
+    { path: 'soccer/conmebol.libertadores/scoreboard', sport: 'soccer' },
+    { path: 'soccer/usa.1/scoreboard', sport: 'soccer' },
+    { path: 'basketball/nba/scoreboard', sport: 'basketball' },
+    { path: 'football/nfl/scoreboard', sport: 'football' },
+    { path: 'baseball/mlb/scoreboard', sport: 'baseball' },
+  ];
+
+  const todos = [];
+
+  await Promise.allSettled(
+    deportes.map(async ({ path, sport }) => {
+      try {
+        const data = await fetchESPN(path);
+        const events = await parseEvents(data, sport);
+        todos.push(...events);
+      } catch(e) { }
+    })
+  );
+
+  todos.sort((a, b) => {
+    if (a.estado === 'live' && b.estado !== 'live') return -1;
+    if (a.estado !== 'live' && b.estado === 'live') return 1;
+    return 0;
+  });
+
+  const response = {
+    status: 'online',
+    timestamp: new Date().toISOString(),
+    total: todos.length,
+    en_vivo: todos.filter(e => e.estado === 'live').length,
+    finalizados: todos.filter(e => e.estado === 'final').length,
+    proximos: todos.filter(e => e.estado === 'scheduled').length,
+    data: todos
+  };
+
+  setCache('fixtures', response);
+  res.json(response);
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ BetGroup Pro Proxy v5.1 en puerto ${PORT} - Resolución Automática`);
 });
