@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>BetGroup Pro — Admin</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui;background:#07101c;color:#eaf2ff;padding:20px}
+        .container{max-width:1200px;margin:0 auto}
+        .card{background:#0d1928;border-radius:20px;padding:20px;margin-bottom:20px}
+        h1,h2{color:#c9a84c;margin-bottom:16px}
+        button{background:#c9a84c;border:none;padding:10px 20px;border-radius:30px;font-weight:bold;cursor:pointer;margin:5px}
+        .btn-warning{background:#e67e22;color:#fff}
+        input,select{width:100%;padding:12px;margin:8px 0;background:#121f35;border:1px solid #1e3352;border-radius:12px;color:#fff}
+        table{width:100%;border-collapse:collapse}
+        th,td{padding:12px;text-align:left;border-bottom:1px solid #1e3352}
+        th{color:#c9a84c}
+        .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:15px}
+        .stat-card{background:#121f35;border-radius:16px;padding:15px;text-align:center}
+        .stat-num{font-size:28px;font-weight:bold;color:#c9a84c}
+        .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+        .tab{background:#121f35;padding:10px 20px;border-radius:30px;cursor:pointer}
+        .tab.active{background:#c9a84c;color:#0a0c1a}
+        .panel{display:none}
+        .panel.active{display:block}
+        .impersonacion-active{background:#e67e22;padding:8px;border-radius:12px;margin-bottom:16px;text-align:center}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🏆 BETGROUP PRO · SÚPER ADMIN</h1>
+    <button onclick="firebase.auth().signOut()">Salir</button>
+
+    <div class="card" style="border:2px solid #e67e22">
+        <h2>👑 ACCESO MAESTRO</h2>
+        <div style="display:flex; gap:10px">
+            <select id="usuarioImpersonar" style="flex:2">
+                <option value="">-- Seleccionar usuario --</option>
+            </select>
+            <button id="btnImpersonar" class="btn-warning">🔍 Ver como</button>
+            <button id="btnVolver" style="background:#555; display:none">⬅ Volver</button>
+        </div>
+        <div id="impersonacionInfo"></div>
+    </div>
+
+    <div class="tabs">
+        <div class="tab active" data-tab="dashboard">📊 Dashboard</div>
+        <div class="tab" data-tab="users">👥 Usuarios</div>
+        <div class="tab" data-tab="deposits">💰 Depósitos</div>
+    </div>
+
+    <div id="panelDashboard" class="panel active">
+        <div class="grid-4">
+            <div class="stat-card"><div class="stat-num" id="totalUsers">0</div><div>Usuarios</div></div>
+            <div class="stat-card"><div class="stat-num" id="totalCaja">0</div><div>Caja</div></div>
+        </div>
+    </div>
+
+    <div id="panelUsers" class="panel">
+        <div class="card"><h2>👥 Usuarios</h2><div id="usersList"></div></div>
+    </div>
+
+    <div id="panelDeposits" class="panel">
+        <div class="card"><h2>💰 Depósitos</h2><div id="depositsList"></div></div>
+    </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script>
+    const config = {
+        apiKey: "AIzaSyBuMBPjGEXLlxGe-dYVgVWBbWHxeBdW8lk",
+        authDomain: "betgroup-cuba-2024.firebaseapp.com",
+        databaseURL: "https://betgroup-cuba-2024-default-rtdb.firebaseio.com"
+    };
+    firebase.initializeApp(config);
+    const auth = firebase.auth();
+    const db = firebase.database();
+
+    let modoImpersonacion = false;
+    let uidActivo = null;
+
+    function obtenerUID() { return uidActivo; }
+
+    async function cargarListaUsuarios() {
+        const snap = await db.ref('users').once('value');
+        const select = document.getElementById('usuarioImpersonar');
+        select.innerHTML = '<option value="">-- Seleccionar --</option>';
+        snap.forEach(u => {
+            if(u.key !== auth.currentUser.uid) {
+                select.innerHTML += `<option value="${u.key}">${u.val().nombre || u.key}</option>`;
+            }
+        });
+    }
+
+    async function impersonar(uid) {
+        uidActivo = uid;
+        modoImpersonacion = true;
+        document.getElementById('impersonacionInfo').innerHTML = `<div class="impersonacion-active">🔍 Viendo como: ${uid}</div>`;
+        document.getElementById('btnImpersonar').style.display = 'none';
+        document.getElementById('btnVolver').style.display = 'inline-block';
+        await cargarDatos();
+    }
+
+    function volver() {
+        uidActivo = auth.currentUser.uid;
+        modoImpersonacion = false;
+        document.getElementById('impersonacionInfo').innerHTML = '';
+        document.getElementById('btnImpersonar').style.display = 'inline-block';
+        document.getElementById('btnVolver').style.display = 'none';
+        cargarDatos();
+    }
+
+    async function cargarDatos() {
+        const usersSnap = await db.ref('users').once('value');
+        let total = 0;
+        usersSnap.forEach(() => total++);
+        document.getElementById('totalUsers').innerText = total;
+
+        let usersHtml = '<table><th>Nombre</th><th>Rol</th><th>Créditos</th></tr>';
+        usersSnap.forEach(u => {
+            usersHtml += `<tr><td>${u.val().nombre || '-'}</td><td>${u.val().rol}</td><td>${u.val().creditos || 0}</td></tr>`;
+        });
+        document.getElementById('usersList').innerHTML = usersHtml;
+
+        const depSnap = await db.ref('depositos').once('value');
+        let depHtml = '<table><th>Monto</th><th>Estado</th></tr>';
+        depSnap.forEach(d => {
+            depHtml += `<tr><td>${d.val().monto}</td><td>${d.val().estado}</td></tr>`;
+        });
+        document.getElementById('depositsList').innerHTML = depHtml;
+    }
+
+    document.getElementById('btnImpersonar').onclick = () => {
+        const uid = document.getElementById('usuarioImpersonar').value;
+        if(uid) impersonar(uid);
+    };
+    document.getElementById('btnVolver').onclick = () => volver();
+
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.onclick = () => {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.getElementById(`panel${tab.dataset.tab.charAt(0).toUpperCase() + tab.dataset.tab.slice(1)}`).classList.add('active');
+        };
+    });
+
+    auth.onAuthStateChanged(async (user) => {
+        if(!user) window.location.href = 'index.html';
+        else {
+            uidActivo = user.uid;
+            await cargarListaUsuarios();
+            await cargarDatos();
+        }
+    });
+</script>
+</body>
+</html>

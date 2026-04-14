@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>BetGroup Pro</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui;background:linear-gradient(135deg,#0a0c1a,#0f1222);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+        .container{max-width:450px;width:100%;background:rgba(7,16,28,.9);border-radius:32px;border:1px solid #c9a84c;padding:32px 24px}
+        h1{text-align:center;color:#c9a84c;margin-bottom:24px}
+        input{width:100%;padding:14px;margin:10px 0;background:#0d1928;border:1px solid #1e3352;border-radius:28px;color:#fff}
+        button{width:100%;padding:14px;background:#c9a84c;border:none;border-radius:28px;font-weight:bold;cursor:pointer;margin-top:10px}
+        .demo-btn{background:#1a2d47;color:#fff}
+        .error{color:#e53935;margin-bottom:16px;display:none}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🏆 BETGROUP PRO</h1>
+    <div id="errorMsg" class="error"></div>
+    <input type="text" id="loginUsuario" placeholder="Email o Teléfono">
+    <input type="password" id="loginPass" placeholder="Contraseña">
+    <button id="btnLogin">Ingresar</button>
+    <button class="demo-btn" onclick="demoLogin('yoelfunfora@gmail.com','Yoelito..98')">Yoel</button>
+    <button class="demo-btn" onclick="demoLogin('neilyrodri@gmail.com','021103neily')">Neilyn</button>
+    <button class="demo-btn" onclick="demoLogin('subadmin@betgroup.cu','sub123')">Subadmin</button>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script>
+    const config = {
+        apiKey: "AIzaSyBuMBPjGEXLlxGe-dYVgVWBbWHxeBdW8lk",
+        authDomain: "betgroup-cuba-2024.firebaseapp.com",
+        databaseURL: "https://betgroup-cuba-2024-default-rtdb.firebaseio.com"
+    };
+    firebase.initializeApp(config);
+    const auth = firebase.auth();
+    const db = firebase.database();
+
+    function showError(msg){let e=document.getElementById('errorMsg');e.innerText=msg;e.style.display='block';setTimeout(()=>e.style.display='none',4000);}
+    window.demoLogin = (email, pass) => { document.getElementById('loginUsuario').value = email; document.getElementById('loginPass').value = pass; document.getElementById('btnLogin').click(); };
+    document.getElementById('btnLogin').onclick = async () => {
+        let usuario = document.getElementById('loginUsuario').value.trim();
+        const pass = document.getElementById('loginPass').value;
+        if(!usuario||!pass) return showError('Completa todos los campos');
+        let email = usuario.includes('@') ? usuario : usuario + '@betgroup.cu';
+        try{
+            await auth.signInWithEmailAndPassword(email, pass);
+            const user = auth.currentUser;
+            const snap = await db.ref(`users/${user.uid}`).once('value');
+            const rol = snap.val().rol;
+            if(rol === 'superadmin' || rol === 'admin') window.location.href = 'admin.html';
+            else if(rol === 'subadmin') window.location.href = 'subadmin.html';
+            else window.location.href = 'app.html';
+        } catch(e){ showError('Email/contraseña incorrectos'); }
+    };
+</script>
+</body>
+</html>

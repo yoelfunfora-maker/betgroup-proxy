@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>BetGroup Pro — Miembro</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:system-ui;background:#07101c;color:#eaf2ff;padding:20px}
+        .card{background:#0d1928;border-radius:20px;padding:20px;margin-bottom:20px}
+        h2{color:#c9a84c;margin-bottom:16px}
+        .partido-card{background:#121f35;border-radius:16px;padding:12px;margin-bottom:10px}
+        .cuotas{display:flex;gap:10px;margin-top:10px}
+        .cuota-btn{flex:1;background:#1e3352;padding:8px;border-radius:12px;cursor:pointer}
+        button{background:#c9a84c;border:none;padding:10px 20px;border-radius:30px;cursor:pointer}
+        .saldo{font-size:24px;color:#c9a84c}
+    </style>
+</head>
+<body>
+<div style="max-width:800px;margin:0 auto">
+    <h1>🏆 BETGROUP PRO · MIEMBRO</h1>
+    <button onclick="firebase.auth().signOut()">Salir</button>
+    <div class="saldo" id="saldo">💰 Saldo: 0 CR</div>
+    <div class="card">
+        <h2>⚽ PARTIDOS EN VIVO</h2>
+        <div id="partidos-container">Cargando...</div>
+    </div>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script>
+    const config = {
+        apiKey: "AIzaSyBuMBPjGEXLlxGe-dYVgVWBbWHxeBdW8lk",
+        authDomain: "betgroup-cuba-2024.firebaseapp.com",
+        databaseURL: "https://betgroup-cuba-2024-default-rtdb.firebaseio.com"
+    };
+    firebase.initializeApp(config);
+    const auth = firebase.auth();
+    const db = firebase.database();
+
+    const PROXY_URL = 'https://betgroup-proxy.onrender.com';
+
+    async function obtenerSaldo(uid) {
+        const snap = await db.ref(`users/${uid}/creditos`).once('value');
+        return snap.val() || 0;
+    }
+
+    async function cargarPartidos() {
+        try {
+            const res = await fetch(`${PROXY_URL}/api/fixtures`);
+            const data = await res.json();
+            const partidos = data.data || [];
+            const container = document.getElementById('partidos-container');
+            if(partidos.length === 0) { container.innerHTML = '<p>No hay partidos</p>'; return; }
+            let html = '';
+            partidos.forEach(p => {
+                html += `<div class="partido-card">
+                    <div><strong>${p.local}</strong> vs <strong>${p.visitante}</strong></div>
+                    <div>${p.marcador} · ${p.minuto}</div>
+                    <div class="cuotas">
+                        <div class="cuota-btn">1: ${p.cuota_local}</div>
+                        <div class="cuota-btn">X: ${p.cuota_empate}</div>
+                        <div class="cuota-btn">2: ${p.cuota_visitante}</div>
+                    </div>
+                </div>`;
+            });
+            container.innerHTML = html;
+        } catch(e) { document.getElementById('partidos-container').innerHTML = '<p>Error al cargar</p>'; }
+    }
+
+    auth.onAuthStateChanged(async (user) => {
+        if(!user) window.location.href = 'index.html';
+        else {
+            const saldo = await obtenerSaldo(user.uid);
+            document.getElementById('saldo').innerText = `💰 Saldo: ${saldo} CR`;
+            cargarPartidos();
+        }
+    });
+    setInterval(cargarPartidos, 30000);
+</script>
+</body>
+</html>
