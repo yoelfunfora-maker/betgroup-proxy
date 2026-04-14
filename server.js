@@ -183,7 +183,7 @@ function calcularCuotas(homeRank, awayRank, sport) {
     awayProb = awayProb * (1 - drawProb);
   }
   
-  const MARGIN = 0.94;
+  const MARGIN = 0.87; // Margen 15% para la casa
   
   const homeOdds = parseFloat((1 / homeProb * MARGIN).toFixed(2));
   const awayOdds = parseFloat((1 / awayProb * MARGIN).toFixed(2));
