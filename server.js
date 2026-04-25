@@ -150,6 +150,51 @@ function getTeamRank(teamName, rankings) {
   return 50;
 }
 
+// ==================== NUEVO: ENDPOINT DE TABLA DE POSICIONES ====================
+app.get('/api/standings', async (req, res) => {
+  const cacheKey = 'standings_todas';
+  const cached = cache[cacheKey];
+  if (cached && Date.now() - cached.timestamp < 60 * 60 * 1000) {
+    return res.json(cached.data);
+  }
+
+  const ligas = [
+    { path: 'soccer/esp.1/standings', sport: 'soccer', liga: 'LaLiga' },
+    { path: 'soccer/eng.1/standings', sport: 'soccer', liga: 'Premier League' },
+    { path: 'soccer/ger.1/standings', sport: 'soccer', liga: 'Bundesliga' },
+    { path: 'soccer/ita.1/standings', sport: 'soccer', liga: 'Serie A' },
+    { path: 'soccer/fra.1/standings', sport: 'soccer', liga: 'Ligue 1' },
+    { path: 'basketball/nba/standings', sport: 'basketball', liga: 'NBA' },
+    { path: 'baseball/mlb/standings', sport: 'baseball', liga: 'MLB' },
+    { path: 'football/nfl/standings', sport: 'football', liga: 'NFL' },
+    { path: 'hockey/nhl/standings', sport: 'hockey', liga: 'NHL' }
+  ];
+
+  const todas = {};
+
+  for (const liga of ligas) {
+    try {
+      const data = await fetchESPN(liga.path);
+      if (data && data.standings) {
+        todas[liga.liga] = {
+          sport: liga.sport,
+          equipos: data.standings.map(e => ({
+            nombre: e.team?.displayName || 'Desconocido',
+            posicion: e.stats?.find(s => s.name === 'rank')?.value || 99,
+            puntos: e.stats?.find(s => s.name === 'points')?.value || 0
+          }))
+        };
+      }
+    } catch (e) {
+      console.error(`Error standings ${liga.liga}:`, e.message);
+    }
+  }
+
+  const response = { status: 'online', data: todas };
+  cache[cacheKey] = { data: response, timestamp: Date.now() };
+  res.json(response);
+});
+
 // ==================== CÁLCULO DE CUOTAS DINÁMICAS ====================
 function calcularCuotas(homeRank, awayRank, sport) {
   const hr = homeRank || 50;
@@ -468,7 +513,7 @@ app.get('/api/results', async (req, res) => {
 // ==================== ENDPOINTS PRINCIPALES ====================
 
 app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'BetGroup Pro API v5.1 — Resolución Automática' });
+  res.json({ status: 'online', message: 'BetGroup Pro API v5.2 — Standings + Cuotas Dinámicas' });
 });
 
 app.get('/api/health', (req, res) => {
@@ -526,5 +571,5 @@ app.get('/api/fixtures', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ BetGroup Pro Proxy v5.1 en puerto ${PORT} - Resolución Automática`);
+  console.log(`✅ BetGroup Pro Proxy v5.2 en puerto ${PORT} - Standings + Cuotas Dinámicas`);
 });
