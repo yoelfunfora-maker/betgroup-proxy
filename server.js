@@ -570,6 +570,57 @@ app.get('/api/fixtures', async (req, res) => {
   res.json(response);
 });
 
+// -------------------- ELIMINACIÓN TOTAL DE USUARIO --------------------
+async function verificarToken(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Token requerido' });
+  }
+  const idToken = authHeader.split('Bearer ')[1];
+  try {
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Token inválido' });
+  }
+}
+
+async function verificarAdmin(req, res, next) {
+  const uidAdmin = req.user.uid;
+  const snapshot = await admin.database().ref(`usuarios/${uidAdmin}/rolLevel`).once('value');
+  const rolLevel = snapshot.val();
+  if (rolLevel === null || rolLevel < 2) {
+    return res.status(403).json({ error: 'Acceso denegado. Se requiere rol de subadmin o superior.' });
+  }
+  next();
+}
+
+app.post('/api/admin/deleteUser', verificarToken, verificarAdmin, async (req, res) => {
+  const { uid } = req.body;
+  if (!uid) return res.status(400).json({ error: 'UID del usuario requerido' });
+
+  try {
+    await admin.auth().deleteUser(uid);
+
+    const paths = [
+      `usuarios/${uid}`,
+      `depositos/${uid}`,
+      `retiros/${uid}`,
+      `apuestas/${uid}`,
+      `notificaciones/${uid}`,
+      `balances/${uid}`
+    ];
+    const updates = {};
+    paths.forEach(p => updates[p] = null);
+    await admin.database().ref().update(updates);
+
+    res.json({ success: true, message: `Usuario ${uid} eliminado completamente.` });
+  } catch (error) {
+    console.error('Error en deleteUser:', error);
+    res.status(500).json({ error: 'Fallo al eliminar el usuario', details: error.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v5.2 en puerto ${PORT} - Standings + Cuotas Dinámicas`);
 });
