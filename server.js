@@ -631,7 +631,7 @@ const admin = require('firebase-admin');
 function initFirebaseAdmin() {
   if (admin.apps.length > 0) return admin.database();
   try {
-    const sa = require(process.env.RENDER ? '/etc/secrets/serviceAccount.json' : './serviceAccount.json');
+    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
     admin.initializeApp({
       credential: admin.credential.cert(sa),
       databaseURL: 'https://betgroup-cuba-2024-default-rtdb.firebaseio.com'
