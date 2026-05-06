@@ -624,3 +624,160 @@ app.post('/api/admin/deleteUser', verificarToken, verificarAdmin, async (req, re
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v5.2 en puerto ${PORT} - Standings + Cuotas Dinámicas`);
 });
+
+// ==================== BOT INGESTA INTEGRADO (RENDER) ====================
+const admin = require('firebase-admin');
+
+function initFirebaseAdmin() {
+  if (admin.apps.length > 0) return admin.database();
+  try {
+    const sa = require('./serviceAccount.json');
+    admin.initializeApp({
+      credential: admin.credential.cert(sa),
+      databaseURL: 'https://betgroup-cuba-2024-default-rtdb.firebaseio.com'
+    });
+    console.log('✅ Firebase Admin conectado');
+    return admin.database();
+  } catch(e) {
+    console.error('❌ Firebase Admin error:', e.message);
+    return null;
+  }
+}
+
+const BOT_CONFIG = {
+  apiKeys: [
+    { key: '2c550803a9a95dd28f551e2aba532676', turno: 0 },
+    { key: '1a88fb93216ca3bf72123f409cd40fa6', turno: 1 }
+  ],
+  margen: 0.12,
+  cuotaMin: 1.05,
+  cuotaMax: 15.00,
+  deportes: [
+    { key: 'soccer_epl',              nombre: 'Premier League',    tipo: 'soccer'     },
+    { key: 'soccer_spain_la_liga',    nombre: 'La Liga',           tipo: 'soccer'     },
+    { key: 'soccer_italy_serie_a',    nombre: 'Serie A',           tipo: 'soccer'     },
+    { key: 'soccer_germany_bundesliga',nombre:'Bundesliga',        tipo: 'soccer'     },
+    { key: 'soccer_france_ligue_one', nombre: 'Ligue 1',           tipo: 'soccer'     },
+    { key: 'soccer_uefa_champs_league',nombre:'Champions League',  tipo: 'soccer'     },
+    { key: 'basketball_nba',          nombre: 'NBA',               tipo: 'basketball' },
+    { key: 'baseball_mlb',            nombre: 'MLB',               tipo: 'baseball'   },
+    { key: 'mma_mixed_martial_arts',  nombre: 'UFC/MMA',           tipo: 'mma'        },
+    { key: 'boxing_boxing',           nombre: 'Boxeo',             tipo: 'boxing'     }
+  ]
+};
+
+function aplicarMargenBot(cuota) {
+  if (!cuota || cuota <= 1) return null;
+  const prob = 1 / cuota;
+  const final = 1 / (prob + BOT_CONFIG.margen);
+  return Math.min(Math.max(parseFloat(final.toFixed(2)), BOT_CONFIG.cuotaMin), BOT_CONFIG.cuotaMax);
+}
+
+function fetchOddsBot(sport, apiKey) {
+  return new Promise((resolve, reject) => {
+    const path = `/v4/sports/${sport}/odds/?apiKey=${apiKey}&regions=eu&markets=h2h&oddsFormat=decimal`;
+    const req = require('https').request({
+      hostname: 'api.the-odds-api.com',
+      path, method: 'GET',
+      headers: { 'User-Agent': 'BetGroupPro/7.5' }
+    }, (res) => {
+      let data = '';
+      res.on('data', d => data += d);
+      res.on('end', () => {
+        try {
+          if (res.statusCode === 200) resolve(JSON.parse(data));
+          else reject(new Error(`HTTP ${res.statusCode}`));
+        } catch(e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout')); });
+    req.end();
+  });
+}
+
+let _turnoActual = 0; // alterna entre 0 y 1 cada ejecución
+
+async function ejecutarIngestaRender() {
+  const dbBot = initFirebaseAdmin();
+  if (!dbBot) return;
+
+  const keyObj = BOT_CONFIG.apiKeys[_turnoActual];
+  console.log(`\n🚀 [${new Date().toLocaleString()}] Ingesta — Key ${_turnoActual + 1} (${keyObj.key.substr(0,8)}...)`);
+
+  const eventos = [];
+
+  for (const dep of BOT_CONFIG.deportes) {
+    try {
+      const data = await fetchOddsBot(dep.key, keyObj.key);
+      for (const ev of data) {
+        const market = ev.bookmakers?.[0]?.markets?.find(m => m.key === 'h2h');
+        if (!market) continue;
+        const oc = market.outcomes;
+        if (!oc || oc.length < 2) continue;
+        eventos.push({
+          id: ev.id,
+          sport: dep.tipo,
+          homeTeam: ev.home_team,
+          awayTeam: ev.away_team,
+          commenceTime: ev.commence_time,
+          cuotas: {
+            local:     aplicarMargenBot(oc[0]?.price),
+            visitante: aplicarMargenBot(oc[1]?.price),
+            empate:    oc[2] ? aplicarMargenBot(oc[2].price) : null
+          }
+        });
+      }
+      console.log(`  ✅ ${dep.nombre}: ${data.length} eventos`);
+      await new Promise(r => setTimeout(r, 800));
+    } catch(e) {
+      console.error(`  ❌ ${dep.nombre}: ${e.message}`);
+    }
+  }
+
+  // Guardar en Firebase
+  if (eventos.length) {
+    const batch = {};
+    const ahora = Date.now();
+    const expira = ahora + 12 * 60 * 60 * 1000; // expira en 12h
+    for (const ev of eventos) {
+      batch[`mercados/${ev.id}`] = { ...ev, fuente: 'the-odds-api', actualizadoEn: ahora, expiraEn: expira };
+    }
+    await dbBot.ref().update(batch);
+  }
+
+  // Limpiar expirados
+  const snap = await dbBot.ref('mercados').once('value');
+  if (snap.val()) {
+    const limpiar = {};
+    Object.entries(snap.val()).forEach(([id, ev]) => {
+      if (ev.expiraEn && ev.expiraEn < Date.now()) limpiar[`mercados/${id}`] = null;
+    });
+    if (Object.keys(limpiar).length) await dbBot.ref().update(limpiar);
+  }
+
+  await dbBot.ref('botConfig/ultimaIngesta').set({
+    timestamp: Date.now(),
+    totalEventos: eventos.length,
+    keyUsada: _turnoActual + 1,
+    fecha: new Date().toISOString()
+  });
+
+  console.log(`✅ Ingesta completa: ${eventos.length} eventos | Key usada: ${_turnoActual + 1}`);
+
+  // Alternar key para próxima ejecución
+  _turnoActual = _turnoActual === 0 ? 1 : 0;
+}
+
+// Ejecutar al arrancar
+ejecutarIngestaRender();
+
+// Key 1: cada 12h desde arranque
+setInterval(ejecutarIngestaRender, 12 * 60 * 60 * 1000);
+
+// Key 2: cada 12h con 6h de desfase
+setTimeout(() => {
+  ejecutarIngestaRender();
+  setInterval(ejecutarIngestaRender, 12 * 60 * 60 * 1000);
+}, 6 * 60 * 60 * 1000);
+
