@@ -521,6 +521,19 @@ app.get('/api/health', (req, res) => {
 });
 
 app.get('/api/fixtures', async (req, res) => {
+
+// Endpoint para forzar ingesta manual
+app.post('/api/odds/ingest', async (req, res) => {
+  try {
+    const key = req.body.key || 1;
+    console.log(`Ingesta manual forzada con Key ${key}`);
+    await ejecutarIngestaRender(key);
+    res.json({ success: true, message: `Ingesta completada con Key ${key}` });
+  } catch (e) {
+    console.error('Error en ingesta manual:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
   const cached = getCache('fixtures');
   if (cached) return res.json(cached);
 
