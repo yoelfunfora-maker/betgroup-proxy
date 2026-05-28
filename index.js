@@ -2,16 +2,21 @@ const express = require('express');
 const axios = require('axios');
 const admin = require('firebase-admin');
 
-// Inicializar Firebase Admin
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const db = admin.database();
 
 const app = express();
-const ODDS_API_KEY = process.env.ODDS_API_KEY;
-const ODDS_API_HOST = 'https://api.the-odds-api.com/v4';
 
-// 1. FILTRO DE DEPORTES (Prioridad Fútbol + Mundial)
+// Leer las 2 claves de The Odds API
+const ODDS_API_KEYS = [
+  process.env.ODDS_API_KEY_1 || '',
+  process.env.ODDS_API_KEY_2 || ''
+].filter(Boolean);
+
+const ODDS_API_HOST = 'https://api.the-odds-api.com/v4';
+let _turnoActual = 0;
+
 const SPORTS_CONFIG = {
   'soccer_fifa_world_cup': { priority: 1, baseUrl: '/sports/soccer_fifa_world_cup/odds', dailyLimit: 2, region: 'eu' },
   'soccer_conmebol_libertadores': { priority: 2, baseUrl: '/sports/soccer_conmebol_libertadores/odds', dailyLimit: 2, region: 'eu' },
@@ -34,59 +39,52 @@ const SPORTS_CONFIG = {
   'basketball_euroleague': { priority: 10, baseUrl: '/sports/basketball_euroleague/odds', dailyLimit: 1, region: 'eu' }
 };
 
-// 2. MAPEO DE NOMBRES ESTILO ESPN
+function getApiKey() {
+  if (ODDS_API_KEYS.length === 0) return null;
+  const key = ODDS_API_KEYS[_turnoActual % ODDS_API_KEYS.length];
+  _turnoActual++;
+  return key;
+}
+
 function normalizeTeamName(name) {
   if (!name) return '';
-  return name
-    .replace(/CF$/g, '').replace(/FC$/g, '').replace(/AFC$/g, '').replace(/SC$/g, '')
+  return name.replace(/CF$/g, '').replace(/FC$/g, '').replace(/AFC$/g, '').replace(/SC$/g, '')
     .replace(/United/g, 'United').replace(/City/g, 'City')
-    .replace(/Real Madrid CF/gi, 'Real Madrid')
-    .replace(/Bayern Munich/gi, 'Bayern de Múnich')
-    .replace(/AC Milan/gi, 'AC Milan')
-    .replace(/Juventus FC/gi, 'Juventus')
-    .replace(/Paris Saint-Germain/gi, 'PSG')
-    .replace(/Borussia Dortmund/gi, 'Dortmund')
-    .trim();
+    .replace(/Real Madrid CF/gi, 'Real Madrid').replace(/Bayern Munich/gi, 'Bayern de Múnich')
+    .replace(/AC Milan/gi, 'AC Milan').replace(/Juventus FC/gi, 'Juventus')
+    .replace(/Paris Saint-Germain/gi, 'PSG').replace(/Borussia Dortmund/gi, 'Dortmund').trim();
 }
 
-// 3. NORMALIZACIÓN DE FECHA
 function normalizeCommenceTime(isoString) {
-  const date = new Date(isoString);
-  return {
-    iso: date.toISOString(),
-    display: date.toLocaleString('es-ES', { timeZone: 'America/Havana', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  };
+  const d = new Date(isoString);
+  return { iso: d.toISOString(), display: d.toLocaleString('es-ES', { timeZone: 'America/Havana', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) };
 }
 
-// 4. CONTROL DE CRÉDITOS
 async function checkUpcomingEvents(sportKey) {
   try {
     const snap = await db.ref(`/sport_schedule/${sportKey}`).once('value');
     const schedule = snap.val() || {};
     const ahora = Date.now();
-    const veinticuatroHoras = ahora + (24 * 60 * 60 * 1000);
-    return Object.values(schedule).some(game => {
-      const gameTime = new Date(game.commenceTime).getTime();
-      return gameTime >= ahora && gameTime <= veinticuatroHoras;
-    });
+    const v24 = ahora + 86400000;
+    return Object.values(schedule).some(g => { const t = new Date(g.commenceTime).getTime(); return t >= ahora && t <= v24; });
   } catch(e) { return false; }
 }
 
-// 5. LLAMADA A THE ODDS API
 async function fetchOddsForSport(sportKey) {
+  const apiKey = getApiKey();
+  if (!apiKey) return [];
   try {
-    const response = await axios.get(`${ODDS_API_HOST}${SPORTS_CONFIG[sportKey].baseUrl}`, {
-      params: { apiKey: ODDS_API_KEY, regions: SPORTS_CONFIG[sportKey].region || 'eu', oddsFormat: 'decimal' }
+    const res = await axios.get(`${ODDS_API_HOST}${SPORTS_CONFIG[sportKey].baseUrl}`, {
+      params: { apiKey, regions: SPORTS_CONFIG[sportKey].region || 'eu', oddsFormat: 'decimal' }
     });
-    return response.data;
-  } catch(e) { console.error(`Error fetching ${sportKey}:`, e.message); return []; }
+    return res.data;
+  } catch(e) { console.error(`Error ${sportKey}:`, e.message); return []; }
 }
 
-// 6. PROCESAMIENTO Y ESCRITURA EN RTDB
 async function processAndStoreOdds(sportKey, matches) {
   const updates = {};
   for (const match of matches) {
-    const processed = {
+    const p = {
       id: match.id,
       sport: SPORTS_CONFIG[sportKey].priority === 1 ? 'football_worldcup' : sportKey.includes('soccer') ? 'football' : sportKey.includes('mma') ? 'mma' : sportKey.includes('boxing') ? 'boxing' : 'other',
       homeTeam: normalizeTeamName(match.home_team),
@@ -95,32 +93,28 @@ async function processAndStoreOdds(sportKey, matches) {
       cuotas: {},
       fuente: 'the-odds-api',
       actualizadoEn: Date.now(),
-      expiraEn: Date.now() + (12 * 60 * 60 * 1000)
+      expiraEn: Date.now() + 43200000
     };
-    if (match.bookmakers?.length) {
-      const cuotas = match.bookmakers[0].markets?.[0]?.outcomes || [];
-      cuotas.forEach(outcome => {
-        if (outcome.name === match.home_team) processed.cuotas.local = outcome.price;
-        if (outcome.name === match.away_team) processed.cuotas.visitante = outcome.price;
-        if (outcome.name === 'Draw') processed.cuotas.empate = outcome.price;
-      });
-    }
-    updates[`/mercados/${match.id}`] = processed;
+    const cuotas = match.bookmakers?.[0]?.markets?.[0]?.outcomes || [];
+    cuotas.forEach(o => {
+      if (o.name === match.home_team) p.cuotas.local = o.price;
+      if (o.name === match.away_team) p.cuotas.visitante = o.price;
+      if (o.name === 'Draw') p.cuotas.empate = o.price;
+    });
+    updates[`/mercados/${match.id}`] = p;
   }
   if (Object.keys(updates).length) await db.ref().update(updates);
 }
 
-// 7. ORQUESTADOR PRINCIPAL
 async function syncAllSports() {
-  for (const [sportKey, config] of Object.entries(SPORTS_CONFIG)) {
-    if (await checkUpcomingEvents(sportKey)) {
-      const matches = await fetchOddsForSport(sportKey);
-      if (matches.length) await processAndStoreOdds(sportKey, matches);
+  for (const [k, cfg] of Object.entries(SPORTS_CONFIG)) {
+    if (await checkUpcomingEvents(k)) {
+      const matches = await fetchOddsForSport(k);
+      if (matches.length) await processAndStoreOdds(k, matches);
     }
   }
 }
 
-// Endpoint principal
 app.get('/api/fixtures', async (req, res) => {
   try {
     const snap = await db.ref('mercados').once('value');
@@ -128,7 +122,6 @@ app.get('/api/fixtures', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Endpoint de sincronización manual
 app.get('/sync', async (req, res) => {
   await syncAllSports();
   res.json({ status: 'sync_completed' });
