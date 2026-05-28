@@ -1,796 +1,138 @@
 const express = require('express');
-const cors = require('cors');
-const https = require('https');
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors());
-app.use(express.json());
-
-// ==================== CACHÉ INTELIGENTE ====================
-const cache = {};
-const CACHE_TTL = 3 * 60 * 1000; // 3 minutos
-const STATS_CACHE_TTL = 30 * 1000; // 30 segundos para stats en vivo
-
-function getCache(key) {
-  const entry = cache[key];
-  if (entry && Date.now() - entry.timestamp < CACHE_TTL) return entry.data;
-  return null;
-}
-function setCache(key, data) {
-  cache[key] = { data, timestamp: Date.now() };
-}
-
-// ==================== HELPER ESPN ====================
-function fetchESPN(path) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'site.api.espn.com',
-      path: `/apis/site/v2/sports/${path}`,
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'application/json'
-      }
-    };
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch(e) { reject(new Error('Error parsing ESPN response')); }
-      });
-    });
-    req.on('error', reject);
-    req.setTimeout(8000, () => { req.destroy(); reject(new Error('ESPN timeout')); });
-    req.end();
-  });
-}
-
-// ==================== API-SPORTS PARA RANKING REAL ====================
-const API_SPORTS_KEY = '9c6baa24885e4b5c12d33d7530b03996';
-const STANDINGS_CACHE = {};
-const STANDINGS_TTL = 24 * 60 * 60 * 1000;
-
-const LEAGUE_MAPPING = {
-  soccer: {
-    'Spanish LALIGA': 140,
-    'English Premier League': 39,
-    'German Bundesliga': 78,
-    'Italian Serie A': 135,
-    'French Ligue 1': 61,
-    'UEFA Champions League': 2,
-    'CONMEBOL Libertadores': 13,
-    'MLS': 253
-  },
-  basketball: {
-    'National Basketball Association': 12
-  },
-  football: {
-    'National Football League': 1
-  },
-  baseball: {
-    'Major League Baseball': 1
-  }
-};
-
-async function fetchStandingsFromAPISports(sport, leagueName) {
-  if (!LEAGUE_MAPPING[sport] || !LEAGUE_MAPPING[sport][leagueName]) {
-    return null;
-  }
-  
-  const leagueId = LEAGUE_MAPPING[sport][leagueName];
-  const cacheKey = `standings_${sport}_${leagueId}`;
-  const cached = STANDINGS_CACHE[cacheKey];
-  if (cached && Date.now() - cached.timestamp < STANDINGS_TTL) {
-    return cached.data;
-  }
-  
-  const sportDomains = {
-    soccer: 'v3.football',
-    basketball: 'v1.basketball',
-    football: 'v1.american-football',
-    baseball: 'v1.baseball'
-  };
-  
-  const domain = sportDomains[sport];
-  if (!domain) return null;
-  
-  try {
-    const season = sport === 'soccer' ? 2025 : (sport === 'basketball' ? '2025-2026' : 2025);
-    const url = `https://${domain}.api-sports.io/standings?league=${leagueId}&season=${season}`;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
-    const res = await fetch(url, {
-      headers: { 'x-apisports-key': API_SPORTS_KEY },
-      signal: controller.signal
-    });
-    
-    clearTimeout(timeoutId);
-    
-    const data = await res.json();
-    
-    if (data.errors && Object.keys(data.errors).length > 0) {
-      console.log('⚠️ API-Sports error:', data.errors);
-      return null;
-    }
-    
-    const rankings = {};
-    if (data.response && data.response.length > 0) {
-      const standings = data.response[0]?.league?.standings || [];
-      for (const group of standings) {
-        for (const team of group) {
-          const teamName = team.team.name;
-          const rank = team.rank;
-          rankings[teamName] = rank;
-        }
-      }
-    }
-    
-    STANDINGS_CACHE[cacheKey] = { data: rankings, timestamp: Date.now() };
-    return rankings;
-    
-  } catch(e) {
-    console.log('❌ API-Sports caída:', e.message);
-    return null;
-  }
-}
-
-function getTeamRank(teamName, rankings) {
-  if (!rankings) return 50;
-  
-  for (const name in rankings) {
-    if (teamName.includes(name) || name.includes(teamName)) {
-      return rankings[name];
-    }
-  }
-  return 50;
-}
-
-// ==================== NUEVO: ENDPOINT DE TABLA DE POSICIONES ====================
-app.get('/api/standings', async (req, res) => {
-  const cacheKey = 'standings_todas';
-  const cached = cache[cacheKey];
-  if (cached && Date.now() - cached.timestamp < 60 * 60 * 1000) {
-    return res.json(cached.data);
-  }
-
-  const ligas = [
-    { path: 'soccer/esp.1/standings', sport: 'soccer', liga: 'LaLiga' },
-    { path: 'soccer/eng.1/standings', sport: 'soccer', liga: 'Premier League' },
-    { path: 'soccer/ger.1/standings', sport: 'soccer', liga: 'Bundesliga' },
-    { path: 'soccer/ita.1/standings', sport: 'soccer', liga: 'Serie A' },
-    { path: 'soccer/fra.1/standings', sport: 'soccer', liga: 'Ligue 1' },
-    { path: 'basketball/nba/standings', sport: 'basketball', liga: 'NBA' },
-    { path: 'baseball/mlb/standings', sport: 'baseball', liga: 'MLB' },
-    { path: 'football/nfl/standings', sport: 'football', liga: 'NFL' },
-    { path: 'hockey/nhl/standings', sport: 'hockey', liga: 'NHL' }
-  ];
-
-  const todas = {};
-
-  for (const liga of ligas) {
-    try {
-      const data = await fetchESPN(liga.path);
-      if (data && data.standings) {
-        todas[liga.liga] = {
-          sport: liga.sport,
-          equipos: data.standings.map(e => ({
-            nombre: e.team?.displayName || 'Desconocido',
-            posicion: e.stats?.find(s => s.name === 'rank')?.value || 99,
-            puntos: e.stats?.find(s => s.name === 'points')?.value || 0
-          }))
-        };
-      }
-    } catch (e) {
-      console.error(`Error standings ${liga.liga}:`, e.message);
-    }
-  }
-
-  const response = { status: 'online', data: todas };
-  cache[cacheKey] = { data: response, timestamp: Date.now() };
-  res.json(response);
-});
-
-// ==================== CÁLCULO DE CUOTAS DINÁMICAS ====================
-function calcularCuotas(homeRank, awayRank, sport) {
-  const hr = homeRank || 50;
-  const ar = awayRank || 50;
-  
-  const maxRank = Math.max(hr, ar, 20);
-  const homeStrength = 1 - (hr / maxRank) * 0.7;
-  const awayStrength = 1 - (ar / maxRank) * 0.7;
-  
-  const LOCAL_ADVANTAGE = 0.12;
-  
-  let homeProb = homeStrength / (homeStrength + awayStrength);
-  let awayProb = awayStrength / (homeStrength + awayStrength);
-  
-  homeProb = homeProb * (1 + LOCAL_ADVANTAGE);
-  awayProb = awayProb * (1 - LOCAL_ADVANTAGE);
-  
-  const total = homeProb + awayProb;
-  homeProb = homeProb / total;
-  awayProb = awayProb / total;
-  
-  let drawProb = 0;
-  if (sport === 'soccer') {
-    const diff = Math.abs(hr - ar);
-    if (diff <= 2) drawProb = 0.28;
-    else if (diff <= 5) drawProb = 0.24;
-    else if (diff <= 10) drawProb = 0.20;
-    else drawProb = 0.16;
-    
-    homeProb = homeProb * (1 - drawProb);
-    awayProb = awayProb * (1 - drawProb);
-  }
-  
-  const MARGIN = 0.87; // Margen 15% para la casa
-  
-  const homeOdds = parseFloat((1 / homeProb * MARGIN).toFixed(2));
-  const awayOdds = parseFloat((1 / awayProb * MARGIN).toFixed(2));
-  const drawOdds = sport === 'soccer' ? parseFloat((1 / drawProb * MARGIN).toFixed(2)) : null;
-  
-  return {
-    cuota_local: Math.max(1.15, Math.min(9.00, homeOdds)),
-    cuota_visitante: Math.max(1.15, Math.min(9.00, awayOdds)),
-    cuota_empate: drawOdds ? Math.max(1.40, Math.min(7.00, drawOdds)) : null
-  };
-}
-
-// ==================== MERCADOS EXTRA ====================
-function generateExtraMarkets(homeRank, awayRank, sport) {
-  if (sport !== 'soccer') return null;
-  
-  const hr = homeRank || 50;
-  const ar = awayRank || 50;
-  const avgRank = (hr + ar) / 2;
-  const MARGIN = 0.92;
-  
-  const overProb = avgRank <= 5 ? 0.58 : avgRank <= 10 ? 0.52 : avgRank <= 15 ? 0.45 : 0.38;
-  const over = parseFloat((1 / overProb * MARGIN).toFixed(2));
-  const under = parseFloat((1 / (1 - overProb) * MARGIN).toFixed(2));
-  
-  const bttsProb = (hr <= 5 && ar <= 5) ? 0.55 : (hr > 15 || ar > 15) ? 0.40 : 0.48;
-  const bttsYes = parseFloat((1 / bttsProb * MARGIN).toFixed(2));
-  const bttsNo = parseFloat((1 / (1 - bttsProb) * MARGIN).toFixed(2));
-  
-  return {
-    over_under: { over, under },
-    both_to_score: { yes: bttsYes, no: bttsNo }
-  };
-}
-
-// ==================== PARSER DE EVENTOS ====================
-async function parseEvents(espnData, sport) {
-  const events = [];
-  if (!espnData || !espnData.events) return events;
-
-  const leagueName = espnData.leagues?.[0]?.name;
-  const rankings = await fetchStandingsFromAPISports(sport, leagueName);
-
-  for (const ev of espnData.events) {
-    try {
-      const competition = ev.competitions?.[0];
-      if (!competition) continue;
-      const competitors = competition.competitors || [];
-      const home = competitors.find(c => c.homeAway === 'home');
-      const away = competitors.find(c => c.homeAway === 'away');
-      if (!home || !away) continue;
-
-      const status = ev.status?.type;
-      const isLive = status?.state === 'in';
-      const isScheduled = status?.state === 'pre';
-      const isFinal = status?.state === 'post' || status?.completed === true;
-      
-      if (!isLive && !isScheduled && !isFinal) continue;
-
-      const homeScore = home.score || '0';
-      const awayScore = away.score || '0';
-      const minute = ev.status?.displayClock || '';
-      const period = ev.status?.period || 0;
-
-      const homeTeamName = home.team?.displayName || '';
-      const awayTeamName = away.team?.displayName || '';
-      
-      const homeRank = getTeamRank(homeTeamName, rankings);
-      const awayRank = getTeamRank(awayTeamName, rankings);
-      
-      const cuotas = calcularCuotas(homeRank, awayRank, sport);
-      
-      let estado = isLive ? 'live' : 'scheduled';
-      if (isFinal) estado = 'final';
-
-      const eventObj = {
-        id: ev.id,
-        sport,
-        liga: leagueName || sport,
-        ligaLogo: espnData.leagues?.[0]?.logos?.[0]?.href || null,
-        local: homeTeamName || 'Local',
-        visitante: awayTeamName || 'Visitante',
-        homeLogo: home.team?.logo || null,
-        awayLogo: away.team?.logo || null,
-        marcador: isLive || isFinal ? `${homeScore}-${awayScore}` : null,
-        minuto: isLive ? minute : null,
-        periodo: period,
-        estado: estado,
-        horaInicio: ev.date || null,
-        cuota_local: cuotas.cuota_local,
-        cuota_empate: cuotas.cuota_empate,
-        cuota_visitante: cuotas.cuota_visitante,
-        homeRank: homeRank,
-        awayRank: awayRank
-      };
-
-      if (sport === 'soccer') {
-        const extra = generateExtraMarkets(homeRank, awayRank, sport);
-        if (extra) Object.assign(eventObj, extra);
-      }
-
-      events.push(eventObj);
-    } catch(e) { }
-  }
-  return events;
-}
-
-// ==================== ENDPOINT DE ESTADÍSTICAS EN VIVO ====================
-app.get('/api/stats/:eventId', async (req, res) => {
-  const { eventId } = req.params;
-  const { sport } = req.query;
-  
-  if (!sport) {
-    return res.status(400).json({ error: 'Se requiere el parámetro sport' });
-  }
-  
-  const cacheKey = `stats_${eventId}`;
-  const cached = cache[cacheKey];
-  if (cached && Date.now() - cached.timestamp < STATS_CACHE_TTL) {
-    return res.json(cached.data);
-  }
-  
-  try {
-    const summaryPath = `${sport}/summary?event=${eventId}`;
-    const data = await fetchESPN(summaryPath);
-    
-    let stats = { eventId, sport, local: {}, visitante: {} };
-    
-    if (data && data.boxscore) {
-      const teams = data.boxscore.teams || [];
-      const home = teams.find(t => t.homeAway === 'home');
-      const away = teams.find(t => t.homeAway === 'away');
-      
-      if (home && away) {
-        const homeStats = home.statistics || [];
-        const awayStats = away.statistics || [];
-        
-        const extractStat = (arr, name) => {
-          const found = arr.find(s => s.name === name);
-          return found ? found.displayValue : (name.includes('Pct') ? '0%' : 0);
-        };
-        
-        if (sport === 'soccer') {
-          stats.local = {
-            posesion: extractStat(homeStats, 'possessionPct'),
-            tiros: extractStat(homeStats, 'totalShots'),
-            tirosPuerta: extractStat(homeStats, 'shotsOnTarget'),
-            faltas: extractStat(homeStats, 'fouls'),
-            corners: extractStat(homeStats, 'cornerKicks'),
-            amarillas: extractStat(homeStats, 'yellowCards'),
-            rojas: extractStat(homeStats, 'redCards')
-          };
-          stats.visitante = {
-            posesion: extractStat(awayStats, 'possessionPct'),
-            tiros: extractStat(awayStats, 'totalShots'),
-            tirosPuerta: extractStat(awayStats, 'shotsOnTarget'),
-            faltas: extractStat(awayStats, 'fouls'),
-            corners: extractStat(awayStats, 'cornerKicks'),
-            amarillas: extractStat(awayStats, 'yellowCards'),
-            rojas: extractStat(awayStats, 'redCards')
-          };
-        } else if (sport === 'basketball') {
-          stats.local = {
-            puntos: home.score || '0',
-            rebotes: extractStat(homeStats, 'totalRebounds'),
-            asistencias: extractStat(homeStats, 'assists'),
-            fgPct: extractStat(homeStats, 'fieldGoalPct'),
-            threePct: extractStat(homeStats, 'threePointPct')
-          };
-          stats.visitante = {
-            puntos: away.score || '0',
-            rebotes: extractStat(awayStats, 'totalRebounds'),
-            asistencias: extractStat(awayStats, 'assists'),
-            fgPct: extractStat(awayStats, 'fieldGoalPct'),
-            threePct: extractStat(awayStats, 'threePointPct')
-          };
-        } else if (sport === 'football') {
-          stats.local = {
-            puntos: home.score || '0',
-            yardasTotales: extractStat(homeStats, 'totalYards'),
-            yardasPase: extractStat(homeStats, 'passingYards'),
-            yardasCarrera: extractStat(homeStats, 'rushingYards')
-          };
-          stats.visitante = {
-            puntos: away.score || '0',
-            yardasTotales: extractStat(awayStats, 'totalYards'),
-            yardasPase: extractStat(awayStats, 'passingYards'),
-            yardasCarrera: extractStat(awayStats, 'rushingYards')
-          };
-        } else if (sport === 'baseball') {
-          stats.local = {
-            carreras: home.score || '0',
-            hits: extractStat(homeStats, 'hits'),
-            errores: extractStat(homeStats, 'errors')
-          };
-          stats.visitante = {
-            carreras: away.score || '0',
-            hits: extractStat(awayStats, 'hits'),
-            errores: extractStat(awayStats, 'errors')
-          };
-        }
-      }
-    }
-    
-    const response = { status: 'online', data: stats };
-    cache[cacheKey] = { data: response, timestamp: Date.now() };
-    res.json(response);
-    
-  } catch(e) {
-    res.status(500).json({ error: 'No se pudieron obtener las estadísticas' });
-  }
-});
-
-// ==================== ENDPOINT DE RESULTADOS FINALES ====================
-app.get('/api/results', async (req, res) => {
-  const cacheKey = 'results_finalizados';
-  const cached = cache[cacheKey];
-  if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
-    return res.json(cached.data);
-  }
-  
-  const deportes = [
-    { path: 'soccer/esp.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/eng.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/ger.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/ita.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/fra.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/uefa.champions/scoreboard', sport: 'soccer' },
-    { path: 'soccer/conmebol.libertadores/scoreboard', sport: 'soccer' },
-    { path: 'soccer/usa.1/scoreboard', sport: 'soccer' },
-    { path: 'basketball/nba/scoreboard', sport: 'basketball' },
-    { path: 'football/nfl/scoreboard', sport: 'football' },
-    { path: 'baseball/mlb/scoreboard', sport: 'baseball' },
-  ];
-  
-  const resultados = [];
-  
-  await Promise.allSettled(
-    deportes.map(async ({ path, sport }) => {
-      try {
-        const data = await fetchESPN(path);
-        if (!data || !data.events) return;
-        
-        for (const ev of data.events) {
-          const status = ev.status?.type;
-          const isFinal = status?.state === 'post' || status?.completed === true;
-          if (!isFinal) continue;
-          
-          const competition = ev.competitions?.[0];
-          if (!competition) continue;
-          const competitors = competition.competitors || [];
-          const home = competitors.find(c => c.homeAway === 'home');
-          const away = competitors.find(c => c.homeAway === 'away');
-          if (!home || !away) continue;
-          
-          resultados.push({
-            id: ev.id,
-            sport,
-            local: home.team?.displayName || 'Local',
-            visitante: away.team?.displayName || 'Visitante',
-            marcador: `${home.score || '0'}-${away.score || '0'}`,
-            golesLocal: parseInt(home.score || '0'),
-            golesVisitante: parseInt(away.score || '0'),
-            fecha: ev.date
-          });
-        }
-      } catch(e) { }
-    })
-  );
-  
-  const response = {
-    status: 'online',
-    timestamp: new Date().toISOString(),
-    total: resultados.length,
-    data: resultados
-  };
-  
-  cache[cacheKey] = { data: response, timestamp: Date.now() };
-  res.json(response);
-});
-
-// ==================== ENDPOINTS PRINCIPALES ====================
-
-app.get('/', (req, res) => {
-  res.json({ status: 'online', message: 'BetGroup Pro API v5.2 — Standings + Cuotas Dinámicas' });
-});
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'online', uptime: process.uptime(), timestamp: new Date().toISOString() });
-});
-
-app.get('/api/fixtures', async (req, res) => {
-
-// Endpoint para forzar ingesta manual
-app.post('/api/odds/ingest', async (req, res) => {
-  try {
-    const key = req.body.key || 1;
-    console.log(`Ingesta manual forzada con Key ${key}`);
-    await ejecutarIngestaRender(key);
-    res.json({ success: true, message: `Ingesta completada con Key ${key}` });
-  } catch (e) {
-    console.error('Error en ingesta manual:', e);
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-  const cached = getCache('fixtures');
-  if (cached) return res.json(cached);
-
-  const deportes = [
-    { path: 'soccer/esp.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/eng.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/ger.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/ita.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/fra.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/uefa.champions/scoreboard', sport: 'soccer' },
-    { path: 'soccer/conmebol.libertadores/scoreboard', sport: 'soccer' },
-    { path: 'soccer/usa.1/scoreboard', sport: 'soccer' },
-    { path: 'basketball/nba/scoreboard', sport: 'basketball' },
-    { path: 'football/nfl/scoreboard', sport: 'football' },
-    { path: 'baseball/mlb/scoreboard', sport: 'baseball' },
-  ];
-
-  const todos = [];
-
-  await Promise.allSettled(
-    deportes.map(async ({ path, sport }) => {
-      try {
-        const data = await fetchESPN(path);
-        const events = await parseEvents(data, sport);
-        todos.push(...events);
-      } catch(e) { }
-    })
-  );
-
-  todos.sort((a, b) => {
-    if (a.estado === 'live' && b.estado !== 'live') return -1;
-    if (a.estado !== 'live' && b.estado === 'live') return 1;
-    return 0;
-  });
-
-  const response = {
-    status: 'online',
-    timestamp: new Date().toISOString(),
-    total: todos.length,
-    en_vivo: todos.filter(e => e.estado === 'live').length,
-    finalizados: todos.filter(e => e.estado === 'final').length,
-    proximos: todos.filter(e => e.estado === 'scheduled').length,
-    data: todos
-  };
-
-  setCache('fixtures', response);
-  res.json(response);
-});
-
-// -------------------- ELIMINACIÓN TOTAL DE USUARIO --------------------
-async function verificarToken(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Token requerido' });
-  }
-  const idToken = authHeader.split('Bearer ')[1];
-  try {
-    const decoded = await admin.auth().verifyIdToken(idToken);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    return res.status(401).json({ error: 'Token inválido' });
-  }
-}
-
-async function verificarAdmin(req, res, next) {
-  const uidAdmin = req.user.uid;
-  const snapshot = await admin.database().ref(`usuarios/${uidAdmin}/rolLevel`).once('value');
-  const rolLevel = snapshot.val();
-  if (rolLevel === null || rolLevel < 2) {
-    return res.status(403).json({ error: 'Acceso denegado. Se requiere rol de subadmin o superior.' });
-  }
-  next();
-}
-
-app.post('/api/admin/deleteUser', verificarToken, verificarAdmin, async (req, res) => {
-  const { uid } = req.body;
-  if (!uid) return res.status(400).json({ error: 'UID del usuario requerido' });
-
-  try {
-    await admin.auth().deleteUser(uid);
-
-    const paths = [
-      `usuarios/${uid}`,
-      `depositos/${uid}`,
-      `retiros/${uid}`,
-      `apuestas/${uid}`,
-      `notificaciones/${uid}`,
-      `balances/${uid}`
-    ];
-    const updates = {};
-    paths.forEach(p => updates[p] = null);
-    await admin.database().ref().update(updates);
-
-    res.json({ success: true, message: `Usuario ${uid} eliminado completamente.` });
-  } catch (error) {
-    console.error('Error en deleteUser:', error);
-    res.status(500).json({ error: 'Fallo al eliminar el usuario', details: error.message });
-  }
-});
-app.listen(PORT, () => {
-  console.log(`✅ BetGroup Pro Proxy v5.2 en puerto ${PORT} - Standings + Cuotas Dinámicas`);
-});
-
-// ==================== BOT INGESTA INTEGRADO (RENDER) ====================
+const axios = require('axios');
 const admin = require('firebase-admin');
 
-function initFirebaseAdmin() {
-  if (admin.apps.length > 0) return admin.database();
-  try {
-    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
-    admin.initializeApp({
-      credential: admin.credential.cert(sa),
-      databaseURL: 'https://betgroup-cuba-2024-default-rtdb.firebaseio.com'
-    });
-    console.log('✅ Firebase Admin conectado');
-    return admin.database();
-  } catch(e) {
-    console.error('❌ Firebase Admin error:', e.message);
-    return null;
-  }
-}
+// Inicializar Firebase Admin
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
+admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+const db = admin.database();
 
-const BOT_CONFIG = {
-  apiKeys: [
-    { key: '2c550803a9a95dd28f551e2aba532676', turno: 0 },
-    { key: '1a88fb93216ca3bf72123f409cd40fa6', turno: 1 }
-  ],
-  margen: 0.12,
-  cuotaMin: 1.05,
-  cuotaMax: 15.00,
-  deportes: [
-    { key: 'soccer_epl',              nombre: 'Premier League',    tipo: 'soccer'     },
-    { key: 'soccer_spain_la_liga',    nombre: 'La Liga',           tipo: 'soccer'     },
-    { key: 'soccer_italy_serie_a',    nombre: 'Serie A',           tipo: 'soccer'     },
-    { key: 'soccer_germany_bundesliga',nombre:'Bundesliga',        tipo: 'soccer'     },
-    { key: 'soccer_france_ligue_one', nombre: 'Ligue 1',           tipo: 'soccer'     },
-    { key: 'soccer_uefa_champs_league',nombre:'Champions League',  tipo: 'soccer'     },
-    { key: 'basketball_nba',          nombre: 'NBA',               tipo: 'basketball' },
-    { key: 'baseball_mlb',            nombre: 'MLB',               tipo: 'baseball'   },
-    { key: 'mma_mixed_martial_arts',  nombre: 'UFC/MMA',           tipo: 'mma'        },
-    { key: 'boxing_boxing',           nombre: 'Boxeo',             tipo: 'boxing'     }
-  ]
+const app = express();
+const ODDS_API_KEY = process.env.ODDS_API_KEY;
+const ODDS_API_HOST = 'https://api.the-odds-api.com/v4';
+
+// 1. FILTRO DE DEPORTES (Prioridad Fútbol + Mundial)
+const SPORTS_CONFIG = {
+  'soccer_fifa_world_cup': { priority: 1, baseUrl: '/sports/soccer_fifa_world_cup/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_conmebol_libertadores': { priority: 2, baseUrl: '/sports/soccer_conmebol_libertadores/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_uefa_champions_league': { priority: 2, baseUrl: '/sports/soccer_uefa_champions_league/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_uefa_europa_league': { priority: 3, baseUrl: '/sports/soccer_uefa_europa_league/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_spain_la_liga': { priority: 3, baseUrl: '/sports/soccer_spain_la_liga/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_epl': { priority: 3, baseUrl: '/sports/soccer_epl/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_italy_serie_a': { priority: 3, baseUrl: '/sports/soccer_italy_serie_a/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_germany_bundesliga': { priority: 3, baseUrl: '/sports/soccer_germany_bundesliga/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_france_ligue_1': { priority: 3, baseUrl: '/sports/soccer_france_ligue_1/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_mexico_liga_mx': { priority: 3, baseUrl: '/sports/soccer_mexico_liga_mx/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_usa_mls': { priority: 3, baseUrl: '/sports/soccer_usa_mls/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_argentina_primera': { priority: 3, baseUrl: '/sports/soccer_argentina_primera/odds', dailyLimit: 2, region: 'eu' },
+  'soccer_brazil_campeonato': { priority: 3, baseUrl: '/sports/soccer_brazil_campeonato/odds', dailyLimit: 2, region: 'eu' },
+  'mma_mixed_martial_arts': { priority: 10, baseUrl: '/sports/mma_mixed_martial_arts/odds', dailyLimit: 1, region: 'us' },
+  'boxing_boxing': { priority: 10, baseUrl: '/sports/boxing_boxing/odds', dailyLimit: 1, region: 'us' },
+  'baseball_mlb': { priority: 10, baseUrl: '/sports/baseball_mlb/odds', dailyLimit: 1, region: 'us' },
+  'baseball_npb': { priority: 10, baseUrl: '/sports/baseball_npb/odds', dailyLimit: 1, region: 'us' },
+  'basketball_nba': { priority: 10, baseUrl: '/sports/basketball_nba/odds', dailyLimit: 1, region: 'us' },
+  'basketball_euroleague': { priority: 10, baseUrl: '/sports/basketball_euroleague/odds', dailyLimit: 1, region: 'eu' }
 };
 
-function aplicarMargenBot(cuota) {
-  if (!cuota || cuota <= 1) return null;
-  const prob = 1 / cuota;
-  const final = 1 / (prob + BOT_CONFIG.margen);
-  return Math.min(Math.max(parseFloat(final.toFixed(2)), BOT_CONFIG.cuotaMin), BOT_CONFIG.cuotaMax);
+// 2. MAPEO DE NOMBRES ESTILO ESPN
+function normalizeTeamName(name) {
+  if (!name) return '';
+  return name
+    .replace(/CF$/g, '').replace(/FC$/g, '').replace(/AFC$/g, '').replace(/SC$/g, '')
+    .replace(/United/g, 'United').replace(/City/g, 'City')
+    .replace(/Real Madrid CF/gi, 'Real Madrid')
+    .replace(/Bayern Munich/gi, 'Bayern de Múnich')
+    .replace(/AC Milan/gi, 'AC Milan')
+    .replace(/Juventus FC/gi, 'Juventus')
+    .replace(/Paris Saint-Germain/gi, 'PSG')
+    .replace(/Borussia Dortmund/gi, 'Dortmund')
+    .trim();
 }
 
-function fetchOddsBot(sport, apiKey) {
-  return new Promise((resolve, reject) => {
-    const path = `/v4/sports/${sport}/odds/?apiKey=${apiKey}&regions=eu&markets=h2h&oddsFormat=decimal`;
-    const req = require('https').request({
-      hostname: 'api.the-odds-api.com',
-      path, method: 'GET',
-      headers: { 'User-Agent': 'BetGroupPro/7.5' }
-    }, (res) => {
-      let data = '';
-      res.on('data', d => data += d);
-      res.on('end', () => {
-        try {
-          if (res.statusCode === 200) resolve(JSON.parse(data));
-          else reject(new Error(`HTTP ${res.statusCode}`));
-        } catch(e) { reject(e); }
-      });
-    });
-    req.on('error', reject);
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout')); });
-    req.end();
-  });
+// 3. NORMALIZACIÓN DE FECHA
+function normalizeCommenceTime(isoString) {
+  const date = new Date(isoString);
+  return {
+    iso: date.toISOString(),
+    display: date.toLocaleString('es-ES', { timeZone: 'America/Havana', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  };
 }
 
-let _turnoActual = 0; // alterna entre 0 y 1 cada ejecución
-
-async function ejecutarIngestaRender() {
-  const dbBot = initFirebaseAdmin();
-  if (!dbBot) return;
-
-  const keyObj = BOT_CONFIG.apiKeys[_turnoActual];
-  console.log(`\n🚀 [${new Date().toLocaleString()}] Ingesta — Key ${_turnoActual + 1} (${keyObj.key.substr(0,8)}...)`);
-
-  const eventos = [];
-
-  for (const dep of BOT_CONFIG.deportes) {
-    try {
-      const data = await fetchOddsBot(dep.key, keyObj.key);
-      for (const ev of data) {
-        const market = ev.bookmakers?.[0]?.markets?.find(m => m.key === 'h2h');
-        if (!market) continue;
-        const oc = market.outcomes;
-        if (!oc || oc.length < 2) continue;
-        eventos.push({
-          id: ev.id,
-          sport: dep.tipo,
-          homeTeam: ev.home_team,
-          awayTeam: ev.away_team,
-          commenceTime: ev.commence_time,
-          cuotas: {
-            local:     aplicarMargenBot(oc[0]?.price),
-            visitante: aplicarMargenBot(oc[1]?.price),
-            empate:    oc[2] ? aplicarMargenBot(oc[2].price) : null
-          }
-        });
-      }
-      console.log(`  ✅ ${dep.nombre}: ${data.length} eventos`);
-      await new Promise(r => setTimeout(r, 800));
-    } catch(e) {
-      console.error(`  ❌ ${dep.nombre}: ${e.message}`);
-    }
-  }
-
-  // Guardar en Firebase
-  if (eventos.length) {
-    const batch = {};
+// 4. CONTROL DE CRÉDITOS
+async function checkUpcomingEvents(sportKey) {
+  try {
+    const snap = await db.ref(`/sport_schedule/${sportKey}`).once('value');
+    const schedule = snap.val() || {};
     const ahora = Date.now();
-    const expira = ahora + 12 * 60 * 60 * 1000; // expira en 12h
-    for (const ev of eventos) {
-      batch[`mercados/${ev.id}`] = { ...ev, fuente: 'the-odds-api', actualizadoEn: ahora, expiraEn: expira };
-    }
-    await dbBot.ref().update(batch);
-  }
-
-  // Limpiar expirados
-  const snap = await dbBot.ref('mercados').once('value');
-  if (snap.val()) {
-    const limpiar = {};
-    Object.entries(snap.val()).forEach(([id, ev]) => {
-      if (ev.expiraEn && ev.expiraEn < Date.now()) limpiar[`mercados/${id}`] = null;
+    const veinticuatroHoras = ahora + (24 * 60 * 60 * 1000);
+    return Object.values(schedule).some(game => {
+      const gameTime = new Date(game.commenceTime).getTime();
+      return gameTime >= ahora && gameTime <= veinticuatroHoras;
     });
-    if (Object.keys(limpiar).length) await dbBot.ref().update(limpiar);
-  }
-
-  await dbBot.ref('botConfig/ultimaIngesta').set({
-    timestamp: Date.now(),
-    totalEventos: eventos.length,
-    keyUsada: _turnoActual + 1,
-    fecha: new Date().toISOString()
-  });
-
-  console.log(`✅ Ingesta completa: ${eventos.length} eventos | Key usada: ${_turnoActual + 1}`);
-
-  // Alternar key para próxima ejecución
-  _turnoActual = _turnoActual === 0 ? 1 : 0;
+  } catch(e) { return false; }
 }
 
-// Ejecutar al arrancar
-ejecutarIngestaRender();
+// 5. LLAMADA A THE ODDS API
+async function fetchOddsForSport(sportKey) {
+  try {
+    const response = await axios.get(`${ODDS_API_HOST}${SPORTS_CONFIG[sportKey].baseUrl}`, {
+      params: { apiKey: ODDS_API_KEY, regions: SPORTS_CONFIG[sportKey].region || 'eu', oddsFormat: 'decimal' }
+    });
+    return response.data;
+  } catch(e) { console.error(`Error fetching ${sportKey}:`, e.message); return []; }
+}
 
-// Key 1: cada 12h desde arranque
-setInterval(ejecutarIngestaRender, 12 * 60 * 60 * 1000);
+// 6. PROCESAMIENTO Y ESCRITURA EN RTDB
+async function processAndStoreOdds(sportKey, matches) {
+  const updates = {};
+  for (const match of matches) {
+    const processed = {
+      id: match.id,
+      sport: SPORTS_CONFIG[sportKey].priority === 1 ? 'football_worldcup' : sportKey.includes('soccer') ? 'football' : sportKey.includes('mma') ? 'mma' : sportKey.includes('boxing') ? 'boxing' : 'other',
+      homeTeam: normalizeTeamName(match.home_team),
+      awayTeam: normalizeTeamName(match.away_team),
+      commenceTime: normalizeCommenceTime(match.commence_time),
+      cuotas: {},
+      fuente: 'the-odds-api',
+      actualizadoEn: Date.now(),
+      expiraEn: Date.now() + (12 * 60 * 60 * 1000)
+    };
+    if (match.bookmakers?.length) {
+      const cuotas = match.bookmakers[0].markets?.[0]?.outcomes || [];
+      cuotas.forEach(outcome => {
+        if (outcome.name === match.home_team) processed.cuotas.local = outcome.price;
+        if (outcome.name === match.away_team) processed.cuotas.visitante = outcome.price;
+        if (outcome.name === 'Draw') processed.cuotas.empate = outcome.price;
+      });
+    }
+    updates[`/mercados/${match.id}`] = processed;
+  }
+  if (Object.keys(updates).length) await db.ref().update(updates);
+}
 
-// Key 2: cada 12h con 6h de desfase
-setTimeout(() => {
-  ejecutarIngestaRender();
-  setInterval(ejecutarIngestaRender, 12 * 60 * 60 * 1000);
-}, 6 * 60 * 60 * 1000);
+// 7. ORQUESTADOR PRINCIPAL
+async function syncAllSports() {
+  for (const [sportKey, config] of Object.entries(SPORTS_CONFIG)) {
+    if (await checkUpcomingEvents(sportKey)) {
+      const matches = await fetchOddsForSport(sportKey);
+      if (matches.length) await processAndStoreOdds(sportKey, matches);
+    }
+  }
+}
 
+// Endpoint principal
+app.get('/api/fixtures', async (req, res) => {
+  try {
+    const snap = await db.ref('mercados').once('value');
+    res.json({ status: 'ok', data: Object.values(snap.val() || {}) });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// Endpoint de sincronización manual
+app.get('/sync', async (req, res) => {
+  await syncAllSports();
+  res.json({ status: 'sync_completed' });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Proxy activo en puerto ${PORT}`));
