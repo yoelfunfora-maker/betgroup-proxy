@@ -1,193 +1,220 @@
 const express = require('express');
-const cors = require('cors');
-const https = require('https');
-const axios = require('axios');
 const admin = require('firebase-admin');
-
-// Inicializar Firebase Admin
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_B64 
-  ? Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64, 'base64').toString('utf-8')
-  : process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-const db = admin.database();
+const cors = require('cors');
+const axios = require('axios');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ==================== CONFIGURACIÓN ====================
-const ODDS_API_KEYS = [
-  process.env.ODDS_API_KEY_1 || '',
-  process.env.ODDS_API_KEY_2 || ''
-].filter(Boolean);
-const ODDS_API_HOST = 'https://api.the-odds-api.com/v4';
-let _turnoActual = 0;
+// Firebase init
+const firebaseServiceAccountB64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64 || '';
 
-// ==================== CACHÉ ====================
-const cache = {};
-const CACHE_TTL = 3 * 60 * 1000;
-function getCache(key) {
-  const entry = cache[key];
-  if (entry && Date.now() - entry.timestamp < CACHE_TTL) return entry.data;
-  return null;
-}
-function setCache(key, data) {
-  cache[key] = { data, timestamp: Date.now() };
+if (!firebaseServiceAccountB64) {
+  console.error('❌ FIREBASE_SERVICE_ACCOUNT_B64 no definido');
+  process.exit(1);
 }
 
-// ==================== HELPER ESPN ====================
-function fetchESPN(path) {
-  return new Promise((resolve, reject) => {
-    https.request({
-      hostname: 'site.api.espn.com',
-      path: `/apis/site/v2/sports/${path}`,
-      method: 'GET',
-      headers: { 'User-Agent': 'BetGroupPro/7.5', 'Accept': 'application/json' }
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch(e) { reject(new Error('ESPN parse error')); }
-      });
-    }).on('error', reject).setTimeout(8000, function() { this.destroy(); reject(new Error('ESPN timeout')); }).end();
-  });
+let serviceAccount;
+try {
+  const decoded = Buffer.from(firebaseServiceAccountB64, 'base64').toString('utf-8');
+  serviceAccount = JSON.parse(decoded);
+  console.log('✅ Firebase inicializado');
+} catch (e) {
+  console.error('❌ Error Firebase:', e.message);
+  process.exit(1);
 }
 
-// ==================== PARSER ESPN ====================
-function parseEvents(espnData, sport) {
-  const events = [];
-  if (!espnData || !espnData.events) return events;
-  for (const ev of espnData.events) {
-    try {
-      const comp = ev.competitions?.[0];
-      if (!comp) continue;
-      const home = comp.competitors?.find(c => c.homeAway === 'home');
-      const away = comp.competitors?.find(c => c.homeAway === 'away');
-      if (!home || !away) continue;
-      const status = ev.status?.type;
-      if (!status || (status.state !== 'in' && status.state !== 'pre')) continue;
-      events.push({
-        id: ev.id,
-        sport,
-        liga: espnData.leagues?.[0]?.name || sport,
-        ligaLogo: espnData.leagues?.[0]?.logos?.[0]?.href || null,
-        local: home.team?.displayName || 'Local',
-        visitante: away.team?.displayName || 'Visitante',
-        homeLogo: home.team?.logo || null,
-        awayLogo: away.team?.logo || null,
-        marcador: status.state === 'in' ? `${home.score||'0'}-${away.score||'0'}` : null,
-        minuto: status.state === 'in' ? ev.status?.displayClock || '' : null,
-        estado: status.state === 'in' ? 'live' : 'scheduled',
-        horaInicio: ev.date || null,
-        cuota_local: null,
-        cuota_empate: null,
-        cuota_visitante: null
-      });
-    } catch(e) { /* ignorar */ }
-  }
-  return events;
-}
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: 'https://betgroup-cuba-2024-default-rtdb.firebaseio.com'
+});
 
-// ==================== THE ODDS API ====================
-function getApiKey() {
-  if (!ODDS_API_KEYS.length) return null;
-  const key = ODDS_API_KEYS[_turnoActual % ODDS_API_KEYS.length];
-  _turnoActual++;
-  return key;
-}
+const db = admin.database();
+const auth = admin.auth();
 
-const SPORTS_CONFIG = {
-  'soccer_fifa_world_cup': { priority: 1, baseUrl: '/sports/soccer_fifa_world_cup/odds', region: 'eu' },
-  'soccer_conmebol_libertadores': { priority: 2, baseUrl: '/sports/soccer_conmebol_libertadores/odds', region: 'eu' },
-  'soccer_uefa_champions_league': { priority: 2, baseUrl: '/sports/soccer_uefa_champions_league/odds', region: 'eu' },
-  'soccer_epl': { priority: 3, baseUrl: '/sports/soccer_epl/odds', region: 'eu' },
-  'soccer_spain_la_liga': { priority: 3, baseUrl: '/sports/soccer_spain_la_liga/odds', region: 'eu' },
-  'soccer_italy_serie_a': { priority: 3, baseUrl: '/sports/soccer_italy_serie_a/odds', region: 'eu' },
-  'soccer_germany_bundesliga': { priority: 3, baseUrl: '/sports/soccer_germany_bundesliga/odds', region: 'eu' },
-  'soccer_france_ligue_1': { priority: 3, baseUrl: '/sports/soccer_france_ligue_1/odds', region: 'eu' },
-  'mma_mixed_martial_arts': { priority: 10, baseUrl: '/sports/mma_mixed_martial_arts/odds', region: 'us' },
-  'boxing_boxing': { priority: 10, baseUrl: '/sports/boxing_boxing/odds', region: 'us' },
-  'baseball_mlb': { priority: 10, baseUrl: '/sports/baseball_mlb/odds', region: 'us' },
-  'basketball_nba': { priority: 10, baseUrl: '/sports/basketball_nba/odds', region: 'us' }
+// ESPN endpoints
+const ESPN_ENDPOINTS = {
+  'La Liga': 'soccer/esp.1/scoreboard',
+  'Premier League': 'soccer/eng.1/scoreboard',
+  'Bundesliga': 'soccer/ger.1/scoreboard',
+  'Serie A': 'soccer/ita.1/scoreboard',
+  'Ligue 1': 'soccer/fra.1/scoreboard',
+  'Champions': 'soccer/uefa.champions/scoreboard',
+  'Libertadores': 'soccer/conmebol.libertadores/scoreboard',
+  'Mundial': 'soccer/fifa.world/scoreboard',
+  'NBA': 'basketball/nba/scoreboard',
+  'MLB': 'baseball/mlb/scoreboard',
+  'NFL': 'football/nfl/scoreboard',
+  'NHL': 'hockey/nhl/scoreboard'
 };
 
-async function fetchOddsForSport(sportKey) {
-  const apiKey = getApiKey();
-  if (!apiKey) return [];
-  try {
-    const res = await axios.get(`${ODDS_API_HOST}${SPORTS_CONFIG[sportKey].baseUrl}`, {
-      params: { apiKey, regions: SPORTS_CONFIG[sportKey].region || 'eu', oddsFormat: 'decimal' }
-    });
-    return res.data;
-  } catch(e) { return []; }
-}
-
-// ==================== ENDPOINTS ====================
-
-app.get('/api/fixtures', async (req, res) => {
-  const cached = getCache('fixtures');
-  if (cached) return res.json(cached);
-
-  // 1. Obtener cartelera de ESPN
-  const deportesESPN = [
-    { path: 'soccer/esp.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/eng.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/ger.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/ita.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/fra.1/scoreboard', sport: 'soccer' },
-    { path: 'soccer/uefa.champions/scoreboard', sport: 'soccer' },
-    { path: 'soccer/conmebol.libertadores/scoreboard', sport: 'soccer' },
-    { path: 'soccer/fifa.world/scoreboard', sport: 'soccer' },
-    { path: 'basketball/nba/scoreboard', sport: 'basketball' },
-    { path: 'baseball/mlb/scoreboard', sport: 'baseball' },
-    { path: 'football/nfl/scoreboard', sport: 'football' },
-    { path: 'hockey/nhl/scoreboard', sport: 'hockey' }
-  ];
-
-  const todos = [];
-  await Promise.allSettled(deportesESPN.map(async ({ path, sport }) => {
-    try {
-      const data = await fetchESPN(path);
-      todos.push(...parseEvents(data, sport));
-    } catch(e) { /* ignorar */ }
-  }));
-
-  // 2. Intentar obtener cuotas desde The Odds API (para enriquecer)
-  try {
-    for (const [sportKey] of Object.entries(SPORTS_CONFIG)) {
-      const oddsData = await fetchOddsForSport(sportKey);
-      for (const match of oddsData) {
-        const found = todos.find(e => e.id === match.id);
-        if (found) {
-          const outcomes = match.bookmakers?.[0]?.markets?.[0]?.outcomes || [];
-          outcomes.forEach(o => {
-            if (o.name === match.home_team) found.cuota_local = o.price;
-            if (o.name === match.away_team) found.cuota_visitante = o.price;
-            if (o.name === 'Draw') found.cuota_empate = o.price;
-          });
-        }
-      }
-    }
-  } catch(e) { /* continuar sin cuotas */ }
-
-  todos.sort((a, b) => (a.estado === 'live' ? -1 : 1));
-
-  const response = {
-    status: 'online',
-    timestamp: new Date().toISOString(),
-    total: todos.length,
-    en_vivo: todos.filter(e => e.estado === 'live').length,
-    data: todos
-  };
-
-  setCache('fixtures', response);
-  res.json(response);
-});
+// ODDS API sports mapping
+const ODDS_SPORTS = {
+  'soccer_esp.1': 'La Liga',
+  'soccer_eng.1': 'Premier League',
+  'soccer_ger.1': 'Bundesliga',
+  'soccer_ita.1': 'Serie A',
+  'soccer_fra.1': 'Ligue 1',
+  'soccer_uefa.champions': 'Champions',
+  'soccer_conmebol.libertadores': 'Libertadores',
+  'soccer_fifa.world': 'Mundial',
+  'basketball_nba': 'NBA',
+  'baseball_mlb': 'MLB',
+  'football_nfl': 'NFL',
+  'hockey_nhl': 'NHL'
+};
 
 app.get('/health', (req, res) => {
   res.json({ status: 'sync_completed', timestamp: new Date().toISOString() });
 });
 
+app.post('/sync', async (req, res) => {
+  try {
+    console.log('🔄 SYNC: ESPN cartelera → cuotas The Odds API');
+    
+    // 1. OBTENER CARTELERA DE ESPN
+    console.log('📡 Consultando ESPN...');
+    const cartelera = await obtenerCarteleraESPN();
+    console.log('✅ ' + Object.keys(cartelera).length + ' eventos de ESPN');
+    
+    // 2. ENRIQUECER CON CUOTAS
+    console.log('💰 Agregando cuotas de The Odds API...');
+    const eventosCompletos = await enriquecerConCuotas(cartelera);
+    
+    // 3. GUARDAR EN FIREBASE
+    await db.ref('eventos').set(eventosCompletos);
+    console.log('✅ ' + Object.keys(eventosCompletos).length + ' eventos guardados en /eventos');
+    
+    res.json({ 
+      status: 'sync_completed', 
+      eventos: Object.keys(eventosCompletos).length,
+      fuentes: 'ESPN + The Odds API',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (e) {
+    console.error('❌ Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+async function obtenerCarteleraESPN() {
+  const eventos = {};
+  
+  for (const [liga, path] of Object.entries(ESPN_ENDPOINTS)) {
+    try {
+      const url = 'https://site.api.espn.com/apis/site/v2/sports/' + path;
+      console.log('📍 ' + liga + ': ' + url);
+      
+      const response = await axios.get(url, { 
+        timeout: 8000,
+        headers: { 'User-Agent': 'BetGroup-Proxy/1.0' }
+      });
+      
+      if (response.data && response.data.events && Array.isArray(response.data.events)) {
+        
+        response.data.events.forEach(function(evt) {
+          if (!evt.id || !evt.competitions || !evt.competitions[0]) return;
+          
+          const comp = evt.competitions[0];
+          const local = comp.competitors && comp.competitors[0];
+          const visita = comp.competitors && comp.competitors[1];
+          
+          eventos[evt.id] = {
+            id: evt.id,
+            nombre: (local ? local.displayName : '?') + ' vs ' + (visita ? visita.displayName : '?'),
+            liga: liga,
+            deporte: path.split('/')[0],
+            fecha: evt.date || new Date().toISOString(),
+            estado: evt.status && evt.status.type ? evt.status.type.name : 'scheduled',
+            
+            local: {
+              nombre: local ? local.displayName : '?',
+              logo: local && local.logos && local.logos[0] ? local.logos[0].href : '',
+              marcador: local && local.score ? parseInt(local.score) : 0
+            },
+            
+            visita: {
+              nombre: visita ? visita.displayName : '?',
+              logo: visita && visita.logos && visita.logos[0] ? visita.logos[0].href : '',
+              marcador: visita && visita.score ? parseInt(visita.score) : 0
+            },
+            
+            enlace: evt.links && evt.links[0] ? evt.links[0].href : '',
+            fuente: 'ESPN',
+            cuotas: {} // Se llenará en enriquecerConCuotas
+          };
+        });
+      }
+      
+      console.log('  ✅ ' + (response.data.events ? response.data.events.length : 0) + ' eventos');
+      
+    } catch (e) {
+      console.error('  ❌ ' + liga + ': ' + e.message);
+    }
+  }
+  
+  return eventos;
+}
+
+async function enriquecerConCuotas(eventos) {
+  const apiKey = process.env.ODDS_API_KEY_1;
+  
+  if (!apiKey) {
+    console.warn('⚠️ ODDS_API_KEY_1 no disponible');
+    return eventos;
+  }
+  
+  const sports = ['soccer_epl', 'soccer_champions_league', 'soccer_la_liga', 'baseball_mlb', 'basketball_nba', 'football_nfl'];
+  
+  for (const sport of sports) {
+    try {
+      console.log('  💰 ' + sport);
+      
+      const response = await axios.get('https://api.the-odds-api.com/v4/sports/' + sport + '/odds', {
+        params: { apiKey: apiKey, regions: 'us' },
+        timeout: 8000
+      });
+      
+      if (response.data && Array.isArray(response.data)) {
+        response.data.forEach(function(oddEvt) {
+          // Buscar evento en cartelera ESPN
+          for (const [id, evt] of Object.entries(eventos)) {
+            if (evt.nombre.toLowerCase().includes(oddEvt.home_team.toLowerCase()) && 
+                evt.nombre.toLowerCase().includes(oddEvt.away_team.toLowerCase())) {
+              evt.cuotas = {
+                local: oddEvt.home_team,
+                visita: oddEvt.away_team,
+                mercados: oddEvt.bookmakers || []
+              };
+              break;
+            }
+          }
+        });
+      }
+      
+    } catch (e) {
+      console.error('  ❌ ' + sport + ': ' + e.message);
+    }
+  }
+  
+  return eventos;
+}
+
+app.post('/api/delete-user', async (req, res) => {
+  try {
+    const { uid } = req.body;
+    if (!uid) return res.status(400).json({ error: 'UID requerido' });
+    await auth.deleteUser(uid);
+    await db.ref('users/' + uid).remove();
+    await db.ref('apuestas/' + uid).remove();
+    await db.ref('historial/' + uid).remove();
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Proxy con ESPN + Odds en puerto ${PORT}`));
+app.listen(PORT, () => console.log('🚀 BetGroup Proxy ESPN+Odds en puerto ' + PORT));
