@@ -346,3 +346,4 @@ async function enriquecerConCuotas(eventos) {
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
+// Force deploy Mon Jun  1 01:52:30 EDT 2026
