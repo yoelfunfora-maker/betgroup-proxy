@@ -8,6 +8,28 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+const admin = require('firebase-admin');
+
+try {
+  const serviceAccountB64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
+  if (!serviceAccountB64) {
+    throw new Error('La variable de entorno FIREBASE_SERVICE_ACCOUNT_B64 no está definida.');
+  }
+  const serviceAccountJson = Buffer.from(serviceAccountB64, 'base64').toString('utf8');
+  const serviceAccount = JSON.parse(serviceAccountJson);
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: 'https://betgroup-cuba-2024-default-rtdb.firebaseio.com'
+  });
+  console.log('✅ Firebase Admin SDK inicializado');
+} catch(error) {
+  console.error('Error al inicializar Firebase Admin SDK:', error.message);
+  process.exit(1);
+}
+
+const db = admin.database();
+const auth = admin.auth();
+
 // ==================== CACHÉ INTELIGENTE ====================
 const cache = {};
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutos
@@ -481,37 +503,6 @@ app.post('/api/apostar', async (req, res) => {
       betId: betId
     });
 
-  } catch(e) {
-    console.error('Error en /api/apostar:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-
-app.post('/api/apostar', async (req, res) => {
-  try {
-    const { uid, amount, eventName, type, odds, sport } = req.body;
-    if (!uid || !amount || !eventName) {
-      return res.status(400).json({ error: 'Faltan datos requeridos' });
-    }
-    const snap = await db.ref('users/' + uid + '/creditoReal').once('value');
-    const saldoActual = Number(snap.val()) || 0;
-    if (Number(amount) > saldoActual) {
-      return res.status(400).json({ error: 'Saldo insuficiente', saldo: saldoActual });
-    }
-    const nuevoSaldo = saldoActual - Number(amount);
-    await db.ref('users/' + uid + '/creditoReal').set(nuevoSaldo);
-    const betId = Date.now().toString();
-    await db.ref('apuestas/' + uid + '/' + betId).set({
-      eventoNombre: eventName,
-      tipo: type,
-      monto: Number(amount),
-      cuota: Number(odds),
-      sport: sport || 'soccer',
-      estado: 'pendiente',
-      fecha: Date.now()
-    });
-    res.json({ success: true, nuevoSaldo: nuevoSaldo, betId: betId });
   } catch(e) {
     console.error('Error en /api/apostar:', e.message);
     res.status(500).json({ error: e.message });
