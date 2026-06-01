@@ -367,9 +367,10 @@ async function enriquecerConCuotas(eventos) {
 
 
 // Precargar caché al iniciar y refrescar cada 3 minutos
+// Versión final con Promise.allSettled (recomendado por Porthos)
 async function precalentarCache() {
-  console.log('🔄 Precargando caché...');
-  const deportes = [
+  console.log('🔄 Precargando caché con Promise.allSettled...');
+  const deportesActivos = [
     { path: 'basketball/nba/scoreboard',                sport: 'basketball' },
     { path: 'baseball/mlb/scoreboard',                  sport: 'baseball' },
     { path: 'soccer/fifa.friendly/scoreboard',           sport: 'soccer' },
@@ -377,14 +378,26 @@ async function precalentarCache() {
     { path: 'tennis/wta/scoreboard',                     sport: 'tennis' },
     { path: 'mma/ufc/scoreboard',                        sport: 'mma' },
   ];
+
+  const resultados = await Promise.allSettled(
+    deportesActivos.map(({ path, sport }) => 
+      fetchESPN(path).then(data => parseEvents(data, sport)).catch(() => [])
+    )
+  );
+
   const todos = [];
-  for (const { path, sport } of deportes) {
-    try {
-      const data = await fetchESPN(path);
-      todos.push(...parseEvents(data, sport));
-    } catch(e) { /* ignorar */ }
+  resultados.forEach(r => {
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+      todos.push(...r.value);
+    }
+  });
+
+  try {
+    await enriquecerConCuotas(todos);
+  } catch(e) {
+    console.error('Error enriqueciendo cuotas:', e.message);
   }
-  await enriquecerConCuotas(todos);
+
   todos.sort((a, b) => (a.estado === 'live' ? -1 : 1));
   const response = {
     status: 'online',
@@ -394,13 +407,13 @@ async function precalentarCache() {
     data: todos
   };
   setCache('fixtures', response);
-  console.log('✅ Caché precargada: ' + todos.length + ' eventos');
+  console.log('✅ Caché actualizada: ' + todos.length + ' eventos');
   return response;
 }
 
-// Precalentar al iniciar y luego cada 3 minutos
-precalentarCache().catch(e => console.error('Error precargando:', e.message));
-setInterval(() => precalentarCache().catch(e => console.error('Error refrescando:', e.message)), 3 * 60 * 1000);
+// Iniciar precarga en background (sin bloquear el arranque)
+precalentarCache().catch(e => console.error('Error precarga inicial:', e.message));
+setInterval(() => precalentarCache().catch(e => console.error('Error refresco:', e.message)), 3 * 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
