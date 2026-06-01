@@ -91,7 +91,22 @@ function parseEvents(espnData, sport) {
       if (!home || !away) continue;
 
       // Extraer nombre del competidor (team o athlete)
-      const getName = (c) => c?.athlete?.displayName || c?.team?.displayName || 'Desconocido';
+      const getName = (c) => {
+        const name = c?.athlete?.displayName || c?.team?.displayName;
+        if (name && name !== 'TBD') return name;
+        // Para tenis, buscar en notes
+        const notes = competition?.notes || [];
+        const noteText = notes.find(n => n.type === 'event')?.text || '';
+        if (noteText) {
+          const match = noteText.match(/(.+) bt (.+)/);
+          if (match) {
+            const idx = c?.homeAway === 'home' ? 1 : (c?.homeAway === 'away' ? 2 : 0);
+            if (idx === 1) return match[1].replace(/\(.*?\)/g, '').trim();
+            if (idx === 2) return match[2].replace(/\(.*?\)/g, '').trim();
+          }
+        }
+        return name || 'Desconocido';
+      };
       const getLogo = (c) => c?.team?.logo || null;
 
       // Usar el estado de la competición más reciente (no del evento padre)
@@ -144,6 +159,9 @@ function parseEvents(espnData, sport) {
       const baseHome=parseFloat((1/probHome).toFixed(2));
       const baseDraw=permiteEmpate?parseFloat((1/probDraw).toFixed(2)):null;
       const baseAway=parseFloat((1/probAway).toFixed(2));
+
+      // Filtrar eventos sin nombres reales (TBD)
+      if (getName(home) === 'TBD' || getName(away) === 'TBD') continue;
 
       // Filtrar por rango de fecha SOLO para eventos programados (pre)
       if (!isLive) {
