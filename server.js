@@ -56,12 +56,18 @@ function parseEvents(espnData, sport) {
     try {
       // Buscar competitors en competitions directas o dentro de groupings
       let allCompetitors = [];
+      let competitionStatus = ev.status?.type;
+      
       if (ev.competitions?.length) {
         allCompetitors = ev.competitions[0].competitors || [];
+        competitionStatus = ev.competitions[0].status?.type || competitionStatus;
       } else if (ev.groupings?.length) {
         for (const grouping of ev.groupings) {
           if (grouping.competitions?.length) {
-            allCompetitors = grouping.competitions[0].competitors || [];
+            // Usar la competición más reciente (la última del array)
+            const latestComp = grouping.competitions[grouping.competitions.length - 1];
+            allCompetitors = latestComp.competitors || [];
+            competitionStatus = latestComp.status?.type || competitionStatus;
             if (allCompetitors.length >= 2) break;
           }
         }
@@ -88,11 +94,12 @@ function parseEvents(espnData, sport) {
       const getName = (c) => c?.athlete?.displayName || c?.team?.displayName || 'Desconocido';
       const getLogo = (c) => c?.team?.logo || null;
 
-      const status = ev.status?.type;
-      // Aceptar cualquier estado excepto eventos sin estado definido
+      // Usar el estado de la competición más reciente (no del evento padre)
+      const status = competitionStatus || ev.status?.type;
       if (!status) continue;
       const isLive = status.state === 'in';
-      // Permitir eventos 'post' si tienen fecha (pueden ser recién finalizados o próximos según el deporte)
+      const isScheduled = status.state === 'pre';
+      if (!isLive && !isScheduled) continue;
 
       const homeScore = home.score || '0';
       const awayScore = away.score || '0';
