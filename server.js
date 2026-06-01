@@ -185,19 +185,23 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'online', uptime: process.uptime(), timestamp: new Date().toISOString() });
 });
 
+let precargaEnProgreso = false;
+
 app.get('/api/fixtures', async (req, res) => {
   const cached = getCache('fixtures');
   if (cached) return res.json(cached);
   
-  // Si no hay caché, intentar precargar y responder
-  try {
-    const response = await Promise.race([
-      precalentarCache(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
-    ]);
-    res.json(response);
-  } catch(e) {
-    res.json({ status: 'degraded', total: 0, en_vivo: 0, data: [] });
+  // Si no hay caché, devolver vacío y cargar en background
+  res.json({ status: 'loading', total: 0, en_vivo: 0, data: [] });
+  
+  if (!precargaEnProgreso) {
+    precargaEnProgreso = true;
+    try {
+      await precalentarCache();
+    } catch(e) {
+      console.error('Error precargando:', e.message);
+    }
+    precargaEnProgreso = false;
   }
 });
 
