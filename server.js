@@ -440,6 +440,84 @@ async function precalentarCache() {
 precalentarCache().catch(e => console.error('Error precarga inicial:', e.message));
 setInterval(() => precalentarCache().catch(e => console.error('Error refresco:', e.message)), 3 * 60 * 1000);
 
+
+// ==================== ENDPOINT DE APUESTAS (Admin SDK) ====================
+app.post('/api/apostar', async (req, res) => {
+  try {
+    const { uid, amount, eventName, type, odds, sport } = req.body;
+    if (!uid || !amount || !eventName) {
+      return res.status(400).json({ error: 'Faltan datos requeridos' });
+    }
+
+    // 1. Leer saldo actual
+    const snap = await db.ref('users/' + uid + '/creditoReal').once('value');
+    const saldoActual = Number(snap.val()) || 0;
+
+    // 2. Validar saldo suficiente
+    if (Number(amount) > saldoActual) {
+      return res.status(400).json({ error: 'Saldo insuficiente', saldo: saldoActual });
+    }
+
+    // 3. Descontar saldo
+    const nuevoSaldo = saldoActual - Number(amount);
+    await db.ref('users/' + uid + '/creditoReal').set(nuevoSaldo);
+
+    // 4. Registrar apuesta
+    const betId = Date.now().toString();
+    await db.ref('apuestas/' + uid + '/' + betId).set({
+      eventoNombre: eventName,
+      tipo: type,
+      monto: Number(amount),
+      cuota: Number(odds),
+      sport: sport || 'soccer',
+      estado: 'pendiente',
+      fecha: Date.now()
+    });
+
+    // 5. Respuesta exitosa
+    res.json({
+      success: true,
+      nuevoSaldo: nuevoSaldo,
+      betId: betId
+    });
+
+  } catch(e) {
+    console.error('Error en /api/apostar:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+app.post('/api/apostar', async (req, res) => {
+  try {
+    const { uid, amount, eventName, type, odds, sport } = req.body;
+    if (!uid || !amount || !eventName) {
+      return res.status(400).json({ error: 'Faltan datos requeridos' });
+    }
+    const snap = await db.ref('users/' + uid + '/creditoReal').once('value');
+    const saldoActual = Number(snap.val()) || 0;
+    if (Number(amount) > saldoActual) {
+      return res.status(400).json({ error: 'Saldo insuficiente', saldo: saldoActual });
+    }
+    const nuevoSaldo = saldoActual - Number(amount);
+    await db.ref('users/' + uid + '/creditoReal').set(nuevoSaldo);
+    const betId = Date.now().toString();
+    await db.ref('apuestas/' + uid + '/' + betId).set({
+      eventoNombre: eventName,
+      tipo: type,
+      monto: Number(amount),
+      cuota: Number(odds),
+      sport: sport || 'soccer',
+      estado: 'pendiente',
+      fecha: Date.now()
+    });
+    res.json({ success: true, nuevoSaldo: nuevoSaldo, betId: betId });
+  } catch(e) {
+    console.error('Error en /api/apostar:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
