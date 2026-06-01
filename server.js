@@ -186,10 +186,17 @@ app.get('/api/health', (req, res) => {
 });
 
 app.get('/api/fixtures', async (req, res) => {
+  // Respuesta inmediata si hay caché
   const cached = getCache('fixtures');
   if (cached) return res.json(cached);
 
-  const deportes = [
+  // Intentar obtener datos con timeout de 8s
+  try {
+    const fetchTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('timeout')), 8000)
+    );
+    
+    const deportes = [
     { path: 'soccer/esp.1/scoreboard',                  sport: 'soccer' },
     { path: 'soccer/eng.1/scoreboard',                  sport: 'soccer' },
     { path: 'soccer/ger.1/scoreboard',                  sport: 'soccer' },
@@ -240,8 +247,12 @@ app.get('/api/fixtures', async (req, res) => {
     data: todos
   };
 
-  setCache('fixtures', response);
-  res.json(response);
+    setCache('fixtures', response);
+    res.json(response);
+  } catch(e) {
+    console.error('⚠️ Error en /api/fixtures:', e.message);
+    res.json({ status: 'degraded', total: 0, en_vivo: 0, data: [] });
+  }
 });
 
 
