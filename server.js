@@ -509,6 +509,11 @@ app.post('/api/apostar', async (req, res) => {
   }
 });
 
+
+app.get('/api/ping', (req, res) => {
+  res.json({ ok: true, timestamp: Date.now() });
+});
+
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
