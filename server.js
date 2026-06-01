@@ -177,6 +177,10 @@ app.get('/', (req, res) => {
   res.json({ status: 'online', message: 'BetGroup Pro API v2.0 — ESPN Real Data' });
 });
 
+app.get('/api/test', (req, res) => {
+  res.json({ status: 'ok', message: 'Express funcionando correctamente' });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'online', uptime: process.uptime(), timestamp: new Date().toISOString() });
 });
