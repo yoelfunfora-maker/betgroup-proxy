@@ -186,17 +186,24 @@ app.get('/api/health', (req, res) => {
 });
 
 app.get('/api/fixtures', async (req, res) => {
-  // Respuesta inmediata si hay caché
   const cached = getCache('fixtures');
   if (cached) return res.json(cached);
-
-  // Intentar obtener datos con timeout de 8s
+  
+  // Si no hay caché, intentar precargar y responder
   try {
-    const fetchTimeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('timeout')), 8000)
-    );
-    
-    const deportes = [
+    const response = await Promise.race([
+      precalentarCache(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
+    ]);
+    res.json(response);
+  } catch(e) {
+    res.json({ status: 'degraded', total: 0, en_vivo: 0, data: [] });
+  }
+});
+
+// Endpoint original (solo para referencia, no se usa)
+app.get('/api/fixtures_old', async (req, res) => {
+  const deportes = [
     // === ACTIVOS (Junio 2026) ===
     { path: 'basketball/nba/scoreboard',                sport: 'basketball' },  // 1 evento (NBA Finals)
     { path: 'baseball/mlb/scoreboard',                  sport: 'baseball' },    // 15 eventos (temporada regular)
@@ -250,10 +257,6 @@ app.get('/api/fixtures', async (req, res) => {
 
     setCache('fixtures', response);
     res.json(response);
-  } catch(e) {
-    console.error('⚠️ Error en /api/fixtures:', e.message);
-    res.json({ status: 'degraded', total: 0, en_vivo: 0, data: [] });
-  }
 });
 
 
@@ -358,6 +361,42 @@ async function enriquecerConCuotas(eventos) {
   return eventos;
 }
 
+
+// Precargar caché al iniciar y refrescar cada 3 minutos
+async function precalentarCache() {
+  console.log('🔄 Precargando caché...');
+  const deportes = [
+    { path: 'basketball/nba/scoreboard',                sport: 'basketball' },
+    { path: 'baseball/mlb/scoreboard',                  sport: 'baseball' },
+    { path: 'soccer/fifa.friendly/scoreboard',           sport: 'soccer' },
+    { path: 'soccer/fifa.world/scoreboard',              sport: 'soccer' },
+    { path: 'tennis/wta/scoreboard',                     sport: 'tennis' },
+    { path: 'mma/ufc/scoreboard',                        sport: 'mma' },
+  ];
+  const todos = [];
+  for (const { path, sport } of deportes) {
+    try {
+      const data = await fetchESPN(path);
+      todos.push(...parseEvents(data, sport));
+    } catch(e) { /* ignorar */ }
+  }
+  await enriquecerConCuotas(todos);
+  todos.sort((a, b) => (a.estado === 'live' ? -1 : 1));
+  const response = {
+    status: 'online',
+    timestamp: new Date().toISOString(),
+    total: todos.length,
+    en_vivo: todos.filter(e => e.estado === 'live').length,
+    data: todos
+  };
+  setCache('fixtures', response);
+  console.log('✅ Caché precargada: ' + todos.length + ' eventos');
+  return response;
+}
+
+// Precalentar al iniciar y luego cada 3 minutos
+precalentarCache().catch(e => console.error('Error precargando:', e.message));
+setInterval(() => precalentarCache().catch(e => console.error('Error refrescando:', e.message)), 3 * 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
