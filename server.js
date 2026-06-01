@@ -197,22 +197,23 @@ app.get('/api/fixtures', async (req, res) => {
     );
     
     const deportes = [
-    { path: 'soccer/esp.1/scoreboard',                  sport: 'soccer' },
-    { path: 'soccer/eng.1/scoreboard',                  sport: 'soccer' },
-    { path: 'soccer/ger.1/scoreboard',                  sport: 'soccer' },
-    { path: 'soccer/ita.1/scoreboard',                  sport: 'soccer' },
-    { path: 'soccer/fra.1/scoreboard',                  sport: 'soccer' },
-    { path: 'soccer/uefa.champions/scoreboard',         sport: 'soccer' },
-    { path: 'soccer/conmebol.libertadores/scoreboard',  sport: 'soccer' },
-    { path: 'soccer/usa.1/scoreboard',                  sport: 'soccer' },
-    { path: 'basketball/nba/scoreboard',                sport: 'basketball' },
-    { path: 'baseball/mlb/scoreboard',                  sport: 'baseball' },
-    { path: 'soccer/fifa.friendly/scoreboard',           sport: 'soccer' },
-    { path: 'soccer/fifa.world/scoreboard',              sport: 'soccer' },
-    { path: 'soccer/uefa.champions/scoreboard',          sport: 'soccer' },
-    { path: 'tennis/atp/scoreboard',                     sport: 'tennis' },
-    { path: 'tennis/wta/scoreboard',                     sport: 'tennis' },
-    { path: 'mma/ufc/scoreboard',                        sport: 'mma' },
+    // === ACTIVOS (Junio 2026) ===
+    { path: 'basketball/nba/scoreboard',                sport: 'basketball' },  // 1 evento (NBA Finals)
+    { path: 'baseball/mlb/scoreboard',                  sport: 'baseball' },    // 15 eventos (temporada regular)
+    { path: 'soccer/fifa.friendly/scoreboard',           sport: 'soccer' },     // 7 eventos (amistosos)
+    { path: 'soccer/fifa.world/scoreboard',              sport: 'soccer' },     // 2 eventos (Mundial próximo)
+    { path: 'tennis/wta/scoreboard',                     sport: 'tennis' },     // 1 evento
+    { path: 'mma/ufc/scoreboard',                        sport: 'mma' },        // 1 evento
+    // === FUERA DE TEMPORADA (comentados para ahorrar tiempo) ===
+    // { path: 'soccer/esp.1/scoreboard',                  sport: 'soccer' },  // LaLiga
+    // { path: 'soccer/eng.1/scoreboard',                  sport: 'soccer' },  // Premier
+    // { path: 'soccer/ger.1/scoreboard',                  sport: 'soccer' },  // Bundesliga
+    // { path: 'soccer/ita.1/scoreboard',                  sport: 'soccer' },  // Serie A
+    // { path: 'soccer/fra.1/scoreboard',                  sport: 'soccer' },  // Ligue 1
+    // { path: 'soccer/uefa.champions/scoreboard',         sport: 'soccer' },  // Champions
+    // { path: 'soccer/conmebol.libertadores/scoreboard',  sport: 'soccer' },  // Libertadores
+    // { path: 'soccer/usa.1/scoreboard',                  sport: 'soccer' },  // MLS
+    // { path: 'tennis/atp/scoreboard',                     sport: 'tennis' }, // ATP
   ];
 
   const todos = [];
