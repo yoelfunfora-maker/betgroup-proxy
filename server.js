@@ -324,16 +324,6 @@ function getApiKey() {
 
 async function enriquecerConCuotas(eventos) {
   // Si las API keys están activas, intentar usarlas
-  if (apiKeysActivas) {
-    let cuotasObtenidas = false;
-    // ... (código existente de consulta a The Odds API)
-    // Si no se obtienen cuotas, desactivar apiKeysActivas
-    // Si se obtienen, mantener activo y no usar respaldo
-  } else {
-    // Si las API keys no están activas, intentar reactivarlas
-    // Probar una consulta ligera a The Odds API
-    // Si responde con datos, activar apiKeysActivas
-  }
   const apiKey = getApiKey();
   if (!apiKey) { console.warn('⚠️ Sin API Key disponible'); return eventos; }
 
@@ -342,7 +332,6 @@ async function enriquecerConCuotas(eventos) {
     basketball: 'basketball_nba',
     baseball: 'baseball_mlb',
     mma: 'mma_mixed_martial_arts',
-    boxing: 'boxing_boxing'
   };
 
   const ODDS_API_HOST = 'https://api.the-odds-api.com/v4';
