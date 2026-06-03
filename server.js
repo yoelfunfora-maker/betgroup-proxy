@@ -591,6 +591,95 @@ app.get('/api/settle', async (req, res) => {
 });
 
 
+
+// ==================== LIQUIDACIÓN MANUAL DE APUESTAS ====================
+
+app.post('/api/settle-manual', async (req, res) => {
+  try {
+    const { eventName, marcador } = req.body;
+    if (!eventName || !marcador) {
+      return res.status(400).json({ error: 'Faltan eventName o marcador' });
+    }
+
+    const [homeScore, awayScore] = marcador.split('-').map(Number);
+    if (isNaN(homeScore) || isNaN(awayScore)) {
+      return res.status(400).json({ error: 'Formato de marcador inválido. Use: 2-1' });
+    }
+
+    let resultadoReal;
+    if (homeScore > awayScore) resultadoReal = 'Local';
+    else if (awayScore > homeScore) resultadoReal = 'Visitante';
+    else resultadoReal = 'Empate';
+
+    const apuestasRef = db.ref('apuestas');
+    const snapshot = await apuestasRef.once('value');
+    const allApuestas = snapshot.val();
+    const settledBets = [];
+
+    if (!allApuestas) {
+      return res.json({ success: true, total: 0, bets: [], message: 'No hay apuestas' });
+    }
+
+    for (const userId in allApuestas) {
+      for (const betId in allApuestas[userId]) {
+        const apuesta = allApuestas[userId][betId];
+
+        if (apuesta.estado !== 'pendiente') continue;
+
+        // Buscar coincidencia flexible con el nombre del evento
+        const apuestaNombre = (apuesta.eventoNombre || '').toLowerCase();
+        const eventNameLower = eventName.toLowerCase();
+        if (!apuestaNombre.includes(eventNameLower) && !eventNameLower.includes(apuestaNombre)) {
+          continue;
+        }
+
+        let hasWon = false;
+        switch (apuesta.tipo) {
+          case 'Local': hasWon = (resultadoReal === 'Local'); break;
+          case 'Visitante': hasWon = (resultadoReal === 'Visitante'); break;
+          case 'Empate': hasWon = (resultadoReal === 'Empate'); break;
+          case 'Local -0.5': hasWon = (homeScore > awayScore); break;
+          case 'Visit +0.5': hasWon = (awayScore >= homeScore); break;
+          case '1X': hasWon = (resultadoReal === 'Local' || resultadoReal === 'Empate'); break;
+          case 'X2': hasWon = (resultadoReal === 'Visitante' || resultadoReal === 'Empate'); break;
+          case '12': hasWon = (resultadoReal === 'Local' || resultadoReal === 'Visitante'); break;
+          default: continue;
+        }
+
+        const newEstado = hasWon ? 'ganada' : 'perdida';
+        await db.ref('apuestas/' + userId + '/' + betId).update({ estado: newEstado });
+
+        if (hasWon) {
+          const ganancia = Math.floor(apuesta.monto * apuesta.cuota);
+          const userSnap = await db.ref('users/' + userId + '/creditoReal').once('value');
+          const saldoActual = userSnap.val() || 0;
+          await db.ref('users/' + userId + '/creditoReal').set(saldoActual + ganancia);
+        }
+
+        settledBets.push({
+          userId,
+          betId,
+          evento: apuesta.eventoNombre,
+          tipo: apuesta.tipo,
+          resultado: newEstado,
+          marcador: marcador
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      total: settledBets.length,
+      bets: settledBets
+    });
+
+  } catch(e) {
+    console.error('Error en /api/settle-manual:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
