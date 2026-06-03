@@ -440,6 +440,7 @@ async function precalentarCache() {
     timestamp: new Date().toISOString(),
     total: todos.length,
     en_vivo: todos.filter(e => e.estado === 'live').length,
+    proximos: todos.filter(e => e.estado === 'scheduled').length,
     data: todos
   };
   setCache('fixtures', response);
