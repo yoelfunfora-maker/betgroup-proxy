@@ -525,7 +525,8 @@ app.get('/api/settle', async (req, res) => {
         if (apuesta.estado !== 'pendiente') continue;
 
         // Intentar obtener el resultado del evento desde la caché del proxy
-        const fixturesCache = getCache('fixtures');
+        await precalentarCache();
+    const fixturesCache = getCache('fixtures');
         let eventResult = null;
         if (fixturesCache && fixturesCache.data) {
           eventResult = fixturesCache.data.find(e =>
