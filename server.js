@@ -688,7 +688,6 @@ async function settleAllPendingBets() {
     const apuestasRef = db.ref('apuestas');
     const snapshot = await apuestasRef.once('value');
     const allApuestas = snapshot.val();
-    if (!allApuestas) return { total: 0 };
 
     const settledBets = [];
     const fixturesCache = getCache('fixtures');
@@ -706,7 +705,6 @@ async function settleAllPendingBets() {
           );
         }
 
-        if (!eventResult || eventResult.estado === 'scheduled' || eventResult.estado === 'live') continue;
 
         const [homeScore, awayScore] = (eventResult.marcador || '0-0').split('-').map(Number);
         let resultadoReal;
@@ -740,18 +738,7 @@ async function settleAllPendingBets() {
         settledBets.push({ userId, betId, evento: apuesta.eventoNombre, tipo: apuesta.tipo, resultado: newEstado });
       }
     }
-    if (settledBets.length > 0 && typeof tgNotify === 'function') {
-      let msg = '🤖 <b>LIQUIDACIÓN AUTOMÁTICA</b>
-📅 ' + new Date().toLocaleString() + '
-📊 Total: ' + settledBets.length + ' apuestas
 
-';
-      for (const bet of settledBets) {
-        msg += '• ' + bet.evento + ' → ' + (bet.resultado === 'ganada' ? '✅ GANADA' : '❌ PERDIDA') + '
-';
-      }
-      await tgNotify(msg);
-    }
     console.log('[AUTO-SETTLE] Liquidación automática completada:', settledBets.length, 'apuestas procesadas.');
     return { total: settledBets.length, bets: settledBets };
   } catch(e) {
