@@ -450,7 +450,7 @@ async function precalentarCache() {
 
 // Iniciar precarga en background (sin bloquear el arranque)
 precalentarCache().catch(e => console.error('Error precarga inicial:', e.message));
-setInterval(() => precalentarCache().catch(e => console.error('Error refresco:', e.message)), 3 * 60 * 1000);
+// setInterval(() => precalentarCache().catch(e => console.error('Error refresco:', e.message)), 3 * 60 * 1000);
 
 
 // ==================== ENDPOINT DE APUESTAS (Admin SDK) ====================
@@ -770,6 +770,22 @@ app.post('/api/settle-manual-marcador', async (req, res) => {
 
 EOFPASTE
 
+
+// ==================== PRECALENTAMIENTO A HORARIOS ESPECÍFICOS ====================
+function schedulePrecalentarCache() {
+  function checkAndRun() {
+    const now = new Date();
+    const hour = now.getUTCHours();
+    const minute = now.getUTCMinutes();
+    if ((hour === 8 && minute === 0) || (hour === 14 && minute === 0)) {
+      console.log('[SCHEDULED] Precalentamiento a ' + now.toISOString());
+      precalentarCache().catch(e => console.error('Error:', e.message));
+    }
+  }
+  setInterval(checkAndRun, 60 * 1000);
+  console.log('⏰ API Precalentamiento: 8:00 AM y 2:00 PM UTC');
+}
+schedulePrecalentarCache();
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
