@@ -754,6 +754,7 @@ async function settleAllPendingBets() {
         console.error("[TG] Error:", e.message);
       }
     }
+    if (settledBets.length > 0 && typeof tgNotify === 'function') await tgNotify('Apuestas liquidadas: ' + settledBets.length);
 console.log('[AUTO-SETTLE] Liquidación automática completada:', settledBets.length, 'apuestas procesadas.');
     return { total: settledBets.length, bets: settledBets };
   } catch(e) {
