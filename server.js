@@ -740,6 +740,18 @@ async function settleAllPendingBets() {
         settledBets.push({ userId, betId, evento: apuesta.eventoNombre, tipo: apuesta.tipo, resultado: newEstado });
       }
     }
+    if (settledBets.length > 0 && typeof tgNotify === 'function') {
+      let msg = '🤖 <b>LIQUIDACIÓN AUTOMÁTICA</b>
+📅 ' + new Date().toLocaleString() + '
+📊 Total: ' + settledBets.length + ' apuestas
+
+';
+      for (const bet of settledBets) {
+        msg += '• ' + bet.evento + ' → ' + (bet.resultado === 'ganada' ? '✅ GANADA' : '❌ PERDIDA') + '
+';
+      }
+      await tgNotify(msg);
+    }
     console.log('[AUTO-SETTLE] Liquidación automática completada:', settledBets.length, 'apuestas procesadas.');
     return { total: settledBets.length, bets: settledBets };
   } catch(e) {
