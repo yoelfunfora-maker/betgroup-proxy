@@ -237,6 +237,7 @@ let precargaEnProgreso = false;
 app.get('/api/fixtures', async (req, res) => {
   const cached = getCache('fixtures');
   if (cached) return res.json(cached);
+  await settleAllPendingBets();
   
   // Si no hay caché, devolver vacío y cargar en background
   res.json({ status: 'loading', total: 0, en_vivo: 0, data: [] });
