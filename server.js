@@ -753,6 +753,22 @@ app.get('/api/settle-internal', async (req, res) => {
   res.json({ success: true, ...result });
 });
 
+cat << 'EOFPASTE'
+
+// ==================== ENDPOINT MANUAL ====================
+app.post('/api/settle-manual-marcador', async (req, res) => {
+  try {
+    const { eventoNombre, marcador } = req.body;
+    if (!eventoNombre || !marcador) return res.json({ success: false, msg: 'Falta evento' });
+    await db.ref('marcadosCompletados/' + eventoNombre).set({ marcador, ts: Date.now() });
+    const result = await settleAllPendingBets();
+    res.json({ success: true, liquidadas: result.total });
+  } catch(e) {
+    res.json({ success: false, error: e.message });
+  }
+});
+
+EOFPASTE
 
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
