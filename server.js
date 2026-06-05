@@ -724,7 +724,6 @@ function schedulePrecalentarCache() {
 schedulePrecalentarCache();
 
 // ==================== TELEGRAM NOTIFICATIONS ====================
-cat << 'EOFTGNOTIFY'
 async function tgNotify(mensaje) {
   try {
     const token = process.env.TG_TOKEN || '8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs';
@@ -759,7 +758,6 @@ async function tgNotify(mensaje) {
     console.error('[TG] Exception:', e.message);
   }
 }
-EOFTGNOTIFY
 
 // ==================== LIQUIDACIÓN AUTOMÁTICA ====================
 async function settleAllPendingBets() {
