@@ -277,15 +277,20 @@ app.get('/api/fixtures_old', async (req, res) => {
 
   const todos = [];
 
-  await Promise.allSettled(
-    deportes.map(async ({ path, sport }) => {
-      try {
-        const data = await fetchESPN(path);
-        const events = parseEvents(data, sport);
-        todos.push(...events);
-      } catch(e) { /* liga no disponible */ }
-    })
-  );
+  cat << 'EOFNEW'
+// Ejecutar con delay para evitar rate limiting de ESPN
+for (const deporte of deportes) {
+  try {
+    const data = await fetchESPN(deporte.path);
+    const eventos = parseEvents(data, deporte.sport);
+    todos.push(...eventos);
+  } catch(e) {
+    console.error(`Error en ${deporte.path}:`, e.message);
+  }
+  await new Promise(r => setTimeout(r, 500)); // Esperar 500ms entre peticiones
+}
+
+EOFNEW
 
   await enriquecerConCuotas(todos);
   todos.sort((a, b) => {
