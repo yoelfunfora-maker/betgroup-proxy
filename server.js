@@ -852,6 +852,18 @@ async function settleAllPendingBets() {
     return { total: 0, error: e.message };
   }
 }
+// ==================== TEST TELEGRAM ====================
+app.get("/api/test-telegram", async (req, res) => {
+  try {
+    const ts = new Date().toLocaleString();
+    const msg = "🧪 <b>TEST TELEGRAM</b>\n📅 " + ts + "\n✅ FUNCIONA";
+    console.log("[TEST-TG] Enviando...");
+    await tgNotify(msg);
+    res.json({ success: true, timestamp: ts });
+  } catch(e) {
+    res.json({ success: false, error: e.message });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
