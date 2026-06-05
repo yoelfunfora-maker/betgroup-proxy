@@ -724,23 +724,42 @@ function schedulePrecalentarCache() {
 schedulePrecalentarCache();
 
 // ==================== TELEGRAM NOTIFICATIONS ====================
+cat << 'EOFTGNOTIFY'
 async function tgNotify(mensaje) {
   try {
-    const token = process.env.TG_TOKEN;
-    const chatId = process.env.TG_CHAT;
+    const token = process.env.TG_TOKEN || '8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs';
+    const chatId = process.env.TG_CHAT || '-5154764705';
+    
+    console.log('[TG] Enviando notificación...');
+    console.log('[TG] Token exists:', !!token);
+    console.log('[TG] ChatId exists:', !!chatId);
+    
     if (!token || !chatId) {
-      console.warn('⚠️ TG_TOKEN o TG_CHAT no configurados');
+      console.error('[TG] Falta TG_TOKEN o TG_CHAT');
       return;
     }
+    
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     const body = JSON.stringify({ chat_id: chatId, text: mensaje, parse_mode: 'HTML' });
-    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-    if (response.ok) console.log('[TG] ✅ Notificación enviada');
-    else console.error('[TG] Error:', response.statusText);
+    
+    const response = await fetch(url, { 
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body 
+    });
+    
+    const result = await response.json();
+    
+    if (response.ok) {
+      console.log('[TG] ✅ Enviado:', result.result.message_id);
+    } else {
+      console.error('[TG] ❌ Error:', result.description);
+    }
   } catch(e) {
-    console.error('[TG] Error:', e.message);
+    console.error('[TG] Exception:', e.message);
   }
 }
+EOFTGNOTIFY
 
 // ==================== LIQUIDACIÓN AUTOMÁTICA ====================
 async function settleAllPendingBets() {
