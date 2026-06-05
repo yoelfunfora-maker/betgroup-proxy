@@ -741,7 +741,98 @@ async function tgNotify(mensaje) {
     console.error('[TG] Error:', e.message);
   }
 }
+cat << 'EOFFUNCTIONFIX'
 
+// ==================== LIQUIDACIÓN AUTOMÁTICA ====================
+async function settleAllPendingBets() {
+  try {
+    const apuestasRef = db.ref('apuestas');
+    const snapshot = await apuestasRef.once('value');
+    const allApuestas = snapshot.val();
+    if (!allApuestas) return { total: 0, bets: [] };
+
+    const settledBets = [];
+    const fixturesCache = getCache('fixtures');
+
+    for (const userId in allApuestas) {
+      for (const betId in allApuestas[userId]) {
+        const apuesta = allApuestas[userId][betId];
+        if (apuesta.estado !== 'pendiente') continue;
+
+        let marcador = null;
+
+        // PASO 1: Buscar en caché de ESPN
+        if (fixturesCache && fixturesCache.data) {
+          const eventResult = fixturesCache.data.find(e =>
+            (e.local + ' vs ' + e.visitante) === apuesta.eventoNombre ||
+            (e.visitante + ' vs ' + e.local) === apuesta.eventoNombre
+          );
+          if (eventResult && eventResult.marcador && eventResult.estado !== 'scheduled') {
+            marcador = eventResult.marcador;
+          }
+        }
+
+        // PASO 2: Si no está en ESPN, buscar en Firebase
+        if (!marcador) {
+          try {
+            const snap = await db.ref('marcadosCompletados/' + apuesta.eventoNombre).once('value');
+            const data = snap.val();
+            if (data && data.marcador) marcador = data.marcador;
+          } catch(e) {}
+        }
+
+        if (!marcador) continue;
+
+        // PASO 3: Procesar resultado
+        const [homeScore, awayScore] = marcador.split('-').map(Number);
+        let resultadoReal = homeScore > awayScore ? 'Local' : awayScore > homeScore ? 'Visitante' : 'Empate';
+
+        let hasWon = false;
+        switch (apuesta.tipo) {
+          case 'Local': hasWon = (resultadoReal === 'Local'); break;
+          case 'Visitante': hasWon = (resultadoReal === 'Visitante'); break;
+          case 'Empate': hasWon = (resultadoReal === 'Empate'); break;
+          case 'Local -0.5': hasWon = (homeScore > awayScore); break;
+          case 'Visit +0.5': hasWon = (awayScore >= homeScore); break;
+          case '1X': hasWon = (resultadoReal === 'Local' || resultadoReal === 'Empate'); break;
+          case 'X2': hasWon = (resultadoReal === 'Visitante' || resultadoReal === 'Empate'); break;
+          case '12': hasWon = (resultadoReal === 'Local' || resultadoReal === 'Visitante'); break;
+        }
+
+        const newEstado = hasWon ? 'ganada' : 'perdida';
+        await db.ref('apuestas/' + userId + '/' + betId).update({ estado: newEstado });
+
+        if (hasWon) {
+          const ganancia = Math.floor(apuesta.monto * apuesta.cuota);
+          const userSnap = await db.ref('users/' + userId + '/creditoReal').once('value');
+          const saldoActual = userSnap.val() || 0;
+          await db.ref('users/' + userId + '/creditoReal').set(saldoActual + ganancia);
+        }
+
+        settledBets.push({ userId, betId, evento: apuesta.eventoNombre, tipo: apuesta.tipo, resultado: newEstado, marcador });
+      }
+    }
+
+    if (settledBets.length > 0) {
+      try {
+        let msg = '🤖 <b>LIQUIDACIÓN</b>\n📅 ' + new Date().toLocaleString() + '\n📊 Total: ' + settledBets.length + '\n\n';
+        for (let i = 0; i < settledBets.length; i++) {
+          const bet = settledBets[i];
+          msg += '• ' + bet.evento + ' → ' + (bet.resultado === 'ganada' ? '✅' : '❌') + ' (' + bet.marcador + ')\n';
+        }
+        await tgNotify(msg);
+      } catch(e) { console.error('[TG]', e.message); }
+    }
+
+    console.log('[SETTLE]', settledBets.length, 'liquidadas');
+    return { total: settledBets.length, bets: settledBets };
+  } catch(e) {
+    console.error('[SETTLE] Error:', e.message);
+    return { total: 0, error: e.message };
+  }
+}
+
+EOFFUNCTIONFIX
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
