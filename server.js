@@ -741,7 +741,6 @@ async function tgNotify(mensaje) {
     console.error('[TG] Error:', e.message);
   }
 }
-cat << 'EOFFUNCTIONFIX'
 
 // ==================== LIQUIDACIÓN AUTOMÁTICA ====================
 async function settleAllPendingBets() {
@@ -832,7 +831,6 @@ async function settleAllPendingBets() {
   }
 }
 
-EOFFUNCTIONFIX
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
