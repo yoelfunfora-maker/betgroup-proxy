@@ -691,7 +691,6 @@ app.get('/api/settle-internal', async (req, res) => {
   res.json({ success: true, ...result });
 });
 
-cat << 'EOFPASTE'
 
 // ==================== ENDPOINT MANUAL ====================
 app.post('/api/settle-manual-marcador', async (req, res) => {
@@ -706,7 +705,6 @@ app.post('/api/settle-manual-marcador', async (req, res) => {
   }
 });
 
-EOFPASTE
 
 
 // ==================== PRECALENTAMIENTO A HORARIOS ESPECÍFICOS ====================
@@ -724,7 +722,6 @@ function schedulePrecalentarCache() {
   console.log('⏰ API Precalentamiento: 8:00 AM y 2:00 PM UTC');
 }
 schedulePrecalentarCache();
-cat << 'EOFTG'
 
 // ==================== TELEGRAM NOTIFICATIONS ====================
 async function tgNotify(mensaje) {
@@ -745,7 +742,6 @@ async function tgNotify(mensaje) {
   }
 }
 
-EOFTG
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
