@@ -460,51 +460,90 @@ precalentarCache().catch(e => console.error('Error precarga inicial:', e.message
 
 
 // ==================== ENDPOINT DE APUESTAS (Admin SDK) ====================
-app.post('/api/apostar', async (req, res) => {
+// ════════════════════════════════════════════════════════════════════
+// 🔐 VALIDACIÓN DE TOKEN - PROTEGER /api/apostar
+// ════════════════════════════════════════════════════════════════════
+
+function validarTokenFirebase(token) {
+  // Validar que el token sea un string válido
+  if (!token || typeof token !== 'string') {
+    return { valido: false, error: 'Token requerido' };
+  }
+  
+  // Formato: "Bearer <token>"
+  if (!token.startsWith('Bearer ')) {
+    return { valido: false, error: 'Formato inválido (Bearer required)' };
+  }
+  
+  const actualToken = token.slice(7); // Quitar "Bearer "
+  
+  // Validar longitud mínima
+  if (actualToken.length < 100) {
+    return { valido: false, error: 'Token inválido (muy corto)' };
+  }
+  
+  return { valido: true, token: actualToken };
+}
+
+// Middleware de protección
+async function protegerApostar(req, res, next) {
+  const auth = req.headers.authorization;
+  const validacion = validarTokenFirebase(auth);
+  
+  if (!validacion.valido) {
+    console.log('[APOSTAR] ❌ No autorizado:', validacion.error);
+    return res.status(401).json({ 
+      error: validacion.error,
+      code: 'UNAUTHORIZED'
+    });
+  }
+  
+  console.log('[APOSTAR] ✅ Token válido, procediendo...');
+  req.token = validacion.token;
+  next();
+}
+
+// Reemplazar el endpoint anterior
+app.post('/api/apostar', protegerApostar, async (req, res) => {
   try {
-    const { uid, amount, eventName, type, odds, sport } = req.body;
-    if (!uid || !amount || !eventName) {
-      return res.status(400).json({ error: 'Faltan datos requeridos' });
+    const { uid, eventoId, cantidad, tipoApuesta, cuota } = req.body;
+    
+    if (!uid || !eventoId || !cantidad || !tipoApuesta || !cuota) {
+      return res.status(400).json({ error: 'Faltan parámetros' });
     }
-
-    // 1. Leer saldo actual
-    const snap = await db.ref('users/' + uid + '/creditoReal').once('value');
-    const saldoActual = Number(snap.val()) || 0;
-
-    // 2. Validar saldo suficiente
-    if (Number(amount) > saldoActual) {
-      return res.status(400).json({ error: 'Saldo insuficiente', saldo: saldoActual });
-    }
-
-    // 3. Descontar saldo
-    const nuevoSaldo = saldoActual - Number(amount);
-    await db.ref('users/' + uid + '/creditoReal').set(nuevoSaldo);
-
-    // 4. Registrar apuesta
-    const betId = Date.now().toString();
-    await db.ref('apuestas/' + uid + '/' + betId).set({
-      eventoNombre: eventName,
-      tipo: type,
-      monto: Number(amount),
-      cuota: Number(odds),
-      sport: sport || 'soccer',
+    
+    console.log(`[APOSTAR] ${uid} → ${eventoId} (${tipoApuesta} $${cantidad})`);
+    
+    // Crear apuesta en Firebase
+    const ref = admin.database().ref(`apuestas/${uid}`);
+    const betId = Date.now();
+    
+    await ref.child(betId).set({
+      betId: betId,
+      eventoId: eventoId,
+      tipo: tipoApuesta,
+      monto: cantidad,
+      cuota: cuota,
+      ganancia: 0,
       estado: 'pendiente',
-      fecha: Date.now()
+      fecha: new Date().toISOString()
     });
-
-    // 5. Respuesta exitosa
-    res.json({
-      success: true,
-      nuevoSaldo: nuevoSaldo,
-      betId: betId
+    
+    // Notificar Telegram
+    const msgTG = `💰 <b>NUEVA APUESTA</b>\n👤 ${uid}\n📊 ${tipoApuesta}\n💵 $${cantidad}\n📈 Cuota: ${cuota}x`;
+    try { await tgNotify(msgTG); } catch(e) { console.log('[TG] Error:', e.message); }
+    
+    res.json({ 
+      success: true, 
+      betId: betId,
+      mensaje: 'Apuesta registrada'
     });
-
+    
   } catch(e) {
-    console.error('Error en /api/apostar:', e.message);
+    console.error('[APOSTAR] Error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
-
 
 app.get('/api/ping', (req, res) => {
   res.json({ ok: true, timestamp: Date.now() });
