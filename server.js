@@ -888,3 +888,44 @@ setInterval(async () => {
 console.log('⏰ Motor automático de liquidación activado (cada 10 minutos).');
 
 // Force deploy v2 Mon Jun  1 02:05:10 EDT 2026
+
+// ════════════════════════════════════════════════════════════════════
+// 🔧 ENDPOINT DE LIQUIDACIÓN (TESTING/ADMIN)
+// ════════════════════════════════════════════════════════════════════
+
+app.post('/api/liquidar', async (req, res) => {
+  try {
+    const { uid, betId, estado, ganancia, marcador } = req.body;
+    
+    if (!uid || !betId || !estado) {
+      return res.status(400).json({ error: 'Faltan parámetros' });
+    }
+
+    console.log(`[LIQUIDAR] ${uid} - ${betId} - ${estado}`);
+
+    // Actualizar en Firebase
+    const ref = admin.database().ref(`apuestas/${uid}/${betId}`);
+    await ref.update({
+      estado: estado,
+      ganancia: ganancia || 0,
+      marcadorFinal: marcador || 'Liquidado',
+      resueltoEn: Date.now()
+    });
+
+    // Verificar que se guardó
+    const snap = await ref.once('value');
+    const datos = snap.val();
+
+    res.json({
+      success: true,
+      betId: betId,
+      estado: datos.estado,
+      ganancia: datos.ganancia
+    });
+
+  } catch(e) {
+    console.error('[LIQUIDAR ERROR]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
