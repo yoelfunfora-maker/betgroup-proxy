@@ -784,11 +784,13 @@ async function settleAllPendingBets() {
 
         // PASO 1: Buscar en caché de ESPN
         if (fixturesCache && fixturesCache.data) {
-          const eventResult = fixturesCache.data.find(e =>
-            (e.local + ' vs ' + e.visitante) === apuesta.eventoNombre ||
-            (e.visitante + ' vs ' + e.local) === apuesta.eventoNombre
-          );
-          if (eventResult && eventResult.marcador && eventResult.estado !== 'scheduled') {
+          const eventResult = fixturesCache.data.find(e => {
+            const e1 = (e.local + ' vs ' + e.visitante).toLowerCase().trim().replace(/\s+/g, ' ');
+            const e2 = (e.visitante + ' vs ' + e.local).toLowerCase().trim().replace(/\s+/g, ' ');
+            const ap = apuesta.eventoNombre.toLowerCase().trim().replace(/\s+/g, ' ');
+            return e1 === ap || e2 === ap;
+          });
+          if (eventResult && eventResult.marcador && eventResult.estado === 'finished') {
             marcador = eventResult.marcador;
           }
         }
@@ -796,13 +798,20 @@ async function settleAllPendingBets() {
         // PASO 2: Si no está en ESPN, buscar en Firebase
         if (!marcador) {
           try {
-            const snap = await db.ref('marcadosCompletados/' + apuesta.eventoNombre).once('value');
+            const eventoNormalizado = apuesta.eventoNombre.toLowerCase().trim().replace(/\s+/g, ' ');
+            const snap = await db.ref('marcadosCompletados/' + eventoNormalizado).once('value');
             const data = snap.val();
             if (data && data.marcador) marcador = data.marcador;
           } catch(e) {}
         }
 
         if (!marcador) continue;
+
+        // Validación: No liquidar eventos aún en vivo
+        if (eventResult && eventResult.estado === 'live') {
+          console.log('[SKIP-LIVE]', apuesta.eventoNombre, '- Aún en transmisión');
+          continue;
+        }
 
         // PASO 3: Procesar resultado
         const [homeScore, awayScore] = marcador.split('-').map(Number);
