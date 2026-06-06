@@ -912,6 +912,10 @@ app.post('/api/liquidar', async (req, res) => {
       resueltoEn: Date.now()
     });
 
+    // Enviar notificación Telegram
+    const msgTG = `✅ <b>APUESTA LIQUIDADA</b>\n💰 ${betId}\n📊 Estado: ${estado}\n💵 Ganancia: $${ganancia}\n📝 ${marcador || 'Sin marcador'}`;
+    try { await tgNotify(msgTG); } catch(e) { console.log('[TG] Error:', e.message); }
+
     // Verificar que se guardó
     const snap = await ref.once('value');
     const datos = snap.val();
