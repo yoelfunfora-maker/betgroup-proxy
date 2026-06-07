@@ -926,6 +926,27 @@ app.post('/api/notify', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// Endpoint para recibir órdenes para los agentes
+app.post('/api/agent-order', async (req, res) => {
+  try {
+    const { agente, tarea, parametros } = req.body;
+    console.log(`[AGENTE] Orden recibida: ${agente} → ${tarea}`);
+    let resultado;
+    if (agente === 'athos') {
+      const https = require('https');
+      const data = JSON.stringify({ api_key: process.env.TAVILY_KEY || '', query: parametros || tarea, search_depth: 'basic', max_results: 3 });
+      resultado = await new Promise((resolve, reject) => {
+        const req = https.request({ hostname: 'api.tavily.com', path: '/search', method: 'POST', headers: { 'Content-Type': 'application/json' } }, r => { let d=''; r.on('data', c => d+=c); r.on('end', () => resolve(JSON.parse(d))); });
+        req.on('error', reject); req.write(data); req.end();
+      });
+    } else if (agente === 'porthos') {
+      resultado = { mensaje: 'Porthos debe ejecutarse en Replit con node agentes/porthos.js' };
+    } else {
+      return res.status(400).json({ error: 'Agente no reconocido' });
+    }
+    res.json({ success: true, agente, tarea, resultado });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
