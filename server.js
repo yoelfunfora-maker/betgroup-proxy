@@ -934,7 +934,7 @@ app.post('/api/agent-order', async (req, res) => {
     let resultado;
     if (agente === 'athos') {
       const https = require('https');
-      const data = JSON.stringify({ api_key: process.env.TAVILY_KEY || '', query: parametros || tarea, search_depth: 'basic', max_results: 3 });
+      const data = JSON.stringify({ api_key: process.env.TAVILY_KEY || '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', query: parametros || tarea, search_depth: 'basic', max_results: 3 });
       resultado = await new Promise((resolve, reject) => {
         const req = https.request({ hostname: 'api.tavily.com', path: '/search', method: 'POST', headers: { 'Content-Type': 'application/json' } }, r => { let d=''; r.on('data', c => d+=c); r.on('end', () => resolve(JSON.parse(d))); });
         req.on('error', reject); req.write(data); req.end();
