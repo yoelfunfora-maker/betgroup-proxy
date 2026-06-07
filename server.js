@@ -913,6 +913,9 @@ app.get("/api/test-telegram", async (req, res) => {
   }
 });
 
+app.get('/api/daily-tasks', async (req, res) => {
+  res.json({ timestamp: new Date().toISOString(), status: 'ok', message: 'Endpoint de diagnóstico diario activo' });
+});
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
