@@ -321,7 +321,13 @@ EOFNEW
 // ==================== THE ODDS API ====================
 function getApiKey() {
   // Usar Key 2 como principal, Key 1 como respaldo
-  const keys = [process.env.ODDS_API_KEY_2, process.env.ODDS_API_KEY_1].filter(Boolean);
+  // ✅ FIX: Asegurar que las API keys se lean correctamente
+  const keys = [
+    process.env.ODDS_API_KEY_1 || "",
+    process.env.ODDS_API_KEY_2 || ""
+  ].filter(k => k && k.length > 10);
+  console.log("[ODDS API] Keys disponibles:", keys.length);
+  if (keys.length === 0) console.error("[ODDS API] ❌ No hay API keys configuradas");
   if (!keys.length) { console.warn('⚠️ Sin API Keys disponibles'); return null; }
   return keys[0];
 }
