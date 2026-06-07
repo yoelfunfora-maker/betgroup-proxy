@@ -916,6 +916,16 @@ app.get("/api/test-telegram", async (req, res) => {
 app.get('/api/daily-tasks', async (req, res) => {
   res.json({ timestamp: new Date().toISOString(), status: 'ok', message: 'Endpoint de diagnóstico diario activo' });
 });
+// Endpoint para que agentes externos (Replit) envien notificaciones
+app.post('/api/notify', async (req, res) => {
+  try {
+    const { mensaje } = req.body;
+    await tgNotify(mensaje);
+    res.json({ success: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`✅ BetGroup Pro Proxy v2.0 en puerto ${PORT}`);
 });
