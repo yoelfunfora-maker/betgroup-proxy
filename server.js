@@ -939,8 +939,14 @@ app.post('/api/agent-order', async (req, res) => {
         const req = https.request({ hostname: 'api.tavily.com', path: '/search', method: 'POST', headers: { 'Content-Type': 'application/json' } }, r => { let d=''; r.on('data', c => d+=c); r.on('end', () => resolve(JSON.parse(d))); });
         req.on('error', reject); req.write(data); req.end();
       });
-    } else if (agente === 'porthos') {
-      resultado = { mensaje: 'Porthos debe ejecutarse en Replit con node agentes/porthos.js' };
+    } else if (agente === "porthos") {
+      const https = require("https");
+      const prompt = parametros || tarea;
+      const data = JSON.stringify({ model: "openai/gpt-oss-120b:free", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
+      resultado = await new Promise((resolve, reject) => {
+        const req = https.request({ hostname: "openrouter.ai", path: "/api/v1/chat/completions", method: "POST", headers: { "Authorization": `Bearer ${process.env.OPENROUTER_KEY || "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"}`, "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
+        req.on("error", reject); req.write(data); req.end();
+      });
     } else {
       return res.status(400).json({ error: 'Agente no reconocido' });
     }
