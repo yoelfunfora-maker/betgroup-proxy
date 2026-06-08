@@ -528,6 +528,14 @@ app.post('/api/apostar', async (req, res) => {
     
     console.log(`[APOSTAR] ${uid} → ${eventoId} (${tipoApuesta} $${cantidad})`);
     
+    // ✅ Descontar saldo del usuario (transaction atómica)
+    const refSaldo = admin.database().ref(`users/${uid}/creditoReal`);
+    await refSaldo.transaction(current => {
+      const saldo = current || 0;
+      if (saldo >= amount) return saldo - amount;
+      return;
+    });
+    
     // Crear apuesta en Firebase
     const ref = admin.database().ref(`apuestas/${uid}`);
     const betId = Date.now();
