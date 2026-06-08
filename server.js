@@ -962,13 +962,13 @@ app.post('/api/agent-order', async (req, res) => {
         req.on("error", reject); req.write(data); req.end();
       });
     } else if (agente === "gemini") {
-      const prompt = parametros || tarea;
+      prompt = parametros || tarea;
       const data = JSON.stringify({ contents: [{ parts: [{ text: prompt + " Responde en español." }] }] });
       resultado = await new Promise((resolve, reject) => {
         const req = https.request({ hostname: "generativelanguage.googleapis.com", path: "/v1beta/models/gemini-1.5-flash:generateContent?key=AIzaSyCUXsc71arYtCLcvne9NQZhqJ8BXEjSUsQ", method: "POST", headers: { "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
         req.on("error", reject); req.write(data); req.end();
       });
-      const prompt = parametros || tarea;
+      prompt = parametros || tarea;
       const data = JSON.stringify({ model: "openai/gpt-oss-120b:free", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
       resultado = await new Promise((resolve, reject) => {
         const req = https.request({ hostname: "openrouter.ai", path: "/api/v1/chat/completions", method: "POST", headers: { "Authorization": `Bearer ${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 || "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"}`, "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
