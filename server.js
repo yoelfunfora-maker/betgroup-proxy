@@ -954,6 +954,22 @@ app.post('/api/agent-order', async (req, res) => {
         req.on("error", reject); req.write(data); req.end();
       });
     } else if (agente === "porthos") {
+    } else if (agente === "groq") {
+      const https = require("https");
+      const prompt = parametros || tarea;
+      const data = JSON.stringify({ model: "mixtral-8x7b-32768", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
+      resultado = await new Promise((resolve, reject) => {
+        const req = https.request({ hostname: "api.groq.com", path: "/openai/v1/chat/completions", method: "POST", headers: { "Authorization": "Bearer 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", "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
+        req.on("error", reject); req.write(data); req.end();
+      });
+    } else if (agente === "gemini") {
+      const https = require("https");
+      const prompt = parametros || tarea;
+      const data = JSON.stringify({ contents: [{ parts: [{ text: prompt + " Responde en español." }] }] });
+      resultado = await new Promise((resolve, reject) => {
+        const req = https.request({ hostname: "generativelanguage.googleapis.com", path: "/v1beta/models/gemini-1.5-flash:generateContent?key=AIzaSyCUXsc71arYtCLcvne9NQZhqJ8BXEjSUsQ", method: "POST", headers: { "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
+        req.on("error", reject); req.write(data); req.end();
+      });
       const https = require("https");
       const prompt = parametros || tarea;
       const data = JSON.stringify({ model: "openai/gpt-oss-120b:free", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
