@@ -958,7 +958,7 @@ app.post('/api/agent-order', async (req, res) => {
       const prompt = parametros || tarea;
       const data = JSON.stringify({ model: "openai/gpt-oss-120b:free", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
       resultado = await new Promise((resolve, reject) => {
-        const req = https.request({ hostname: "openrouter.ai", path: "/api/v1/chat/completions", method: "POST", headers: { "Authorization": `Bearer ${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 || "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"}`, "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
+        const req = https.request({ hostname: "openrouter.ai", path: "/api/v1/chat/completions", method: "POST", headers: { "Authorization": `Bearer ${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 || "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"}`, "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
         req.on("error", reject); req.write(data); req.end();
       });
     } else {
