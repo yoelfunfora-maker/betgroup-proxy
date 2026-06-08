@@ -513,8 +513,12 @@ async function protegerApostar(req, res, next) {
 app.post('/api/apostar', async (req, res) => {
   try {
     const { uid, eventoId, cantidad, tipoApuesta, cuota } = req.body;
+    const eventName = req.body.eventName || req.body.evento || eventoId;
+    const amount = cantidad || req.body.amount;
+    const type = tipoApuesta || req.body.type;
+    const odds = cuota || req.body.odds;
     
-    if (!uid || !eventoId || !cantidad || !tipoApuesta || !cuota) {
+    if (!uid || !eventName || !amount || !type || !odds) {
       return res.status(400).json({ error: 'Faltan parámetros' });
     }
     
@@ -526,10 +530,10 @@ app.post('/api/apostar', async (req, res) => {
     
     await ref.child(betId).set({
       betId: betId,
-      eventoId: eventoId,
-      tipo: tipoApuesta,
-      monto: cantidad,
-      cuota: cuota,
+      eventoId: eventName,
+      tipo: type,
+      monto: amount,
+      cuota: odds,
       ganancia: 0,
       estado: 'pendiente',
       fecha: new Date().toISOString()
