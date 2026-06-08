@@ -945,6 +945,14 @@ app.post('/api/agent-order', async (req, res) => {
         const req = https.request({ hostname: 'api.tavily.com', path: '/search', method: 'POST', headers: { 'Content-Type': 'application/json' } }, r => { let d=''; r.on('data', c => d+=c); r.on('end', () => resolve(JSON.parse(d))); });
         req.on('error', reject); req.write(data); req.end();
       });
+    } else if (agente === "aramis") {
+      const https = require("https");
+      const prompt = parametros || tarea;
+      const data = JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
+      resultado = await new Promise((resolve, reject) => {
+        const req = https.request({ hostname: "api.deepseek.com", path: "/chat/completions", method: "POST", headers: { "Authorization": "Bearer sk-c0466ffeed204cf2ad994e2cb94599c4", "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
+        req.on("error", reject); req.write(data); req.end();
+      });
     } else if (agente === "porthos") {
       const https = require("https");
       const prompt = parametros || tarea;
