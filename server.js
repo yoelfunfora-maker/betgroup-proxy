@@ -950,7 +950,7 @@ app.post('/api/agent-order', async (req, res) => {
       const prompt = parametros || tarea;
       const data = JSON.stringify({ model: "openai/gpt-oss-120b:free", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
       resultado = await new Promise((resolve, reject) => {
-        const req = https.request({ hostname: "openrouter.ai", path: "/api/v1/chat/completions", method: "POST", headers: { "Authorization": `Bearer ${process.env.OPENROUTER_KEY || "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"}`, "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
+        const req = https.request({ hostname: "openrouter.ai", path: "/api/v1/chat/completions", method: "POST", headers: { "Authorization": `Bearer ${process.env.OPENROUTER_KEY || "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"}`, "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
         req.on("error", reject); req.write(data); req.end();
       });
     } else {
