@@ -1,8 +1,8 @@
 {
   "name": "betgroup-proxy",
   "version": "1.0.0",
-  "description": "Proxy optimizado con Mundial, control de cr\u00e9ditos y est\u00e1ndar ESPN",
-  "main": "index.js",
+  "description": "Proxy optimizado con Mundial, control de créditos y estándar ESPN",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
