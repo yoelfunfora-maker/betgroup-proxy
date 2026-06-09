@@ -1031,8 +1031,25 @@ app.post('/api/liquidar', async (req, res) => {
       resueltoEn: Date.now()
     });
 
+    // ✅ FIX A: Acreditar ganancia al usuario si ganó
+    if (estado === 'ganada') {
+      const montoGanancia = ganancia || 0;
+      if (montoGanancia > 0) {
+        await admin.database().ref(`users/${uid}/creditoReal`).transaction(current => {
+          return (current || 0) + montoGanancia;
+        });
+        await admin.database().ref(`historial/${uid}`).push({
+          tipo: 'cobro_ganancia',
+          apuestaId: betId,
+          monto: montoGanancia,
+          timestamp: Date.now()
+        });
+        console.log(`[LIQUIDAR] ✅ Ganancia acreditada: ${montoGanancia} CR a ${uid}`);
+      }
+    }
+
     // Enviar notificación Telegram
-    const msgTG = `✅ <b>APUESTA LIQUIDADA</b>\n💰 ${betId}\n📊 Estado: ${estado}\n💵 Ganancia: $${ganancia}\n📝 ${marcador || 'Sin marcador'}`;
+    const msgTG = `✅ <b>APUESTA LIQUIDADA</b>\n💰 ${betId}\n📊 Estado: ${estado}\n💵 Ganancia: ${ganancia}\n📝 ${marcador || 'Sin marcador'}`;
     try { await tgNotify(msgTG); } catch(e) { console.log('[TG] Error:', e.message); }
 
     // Verificar que se guardó
