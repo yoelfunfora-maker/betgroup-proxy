@@ -553,7 +553,11 @@ app.post('/api/apostar', async (req, res) => {
     });
     
     // Notificar Telegram
-    const msgTG = `💰 <b>NUEVA APUESTA</b>\n👤 ${uid}\n📊 ${tipoApuesta}\n💵 $${cantidad}\n📈 Cuota: ${cuota}x`;
+    const msgTG = `<b>💰 NUEVA APUESTA</b>
+👤 ${uid}
+📊 ${type || tipoApuesta || 'N/A'}
+💵 $${amount || cantidad || 0}
+📈 Cuota: ${odds || cuota || 0}x`;
     try { await tgNotify(msgTG); } catch(e) { console.log('[TG] Error:', e.message); }
     
     res.json({ 
