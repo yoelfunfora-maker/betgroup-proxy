@@ -1,0 +1,25 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "fix_saldo.js",
+      "*fix_saldo*",
+      ".firebaserc",
+      "*.log",
+      "*.BACKUP*"
+    ],
+    "rewrites": [
+      {
+        "source": "/fix_saldo.js",
+        "destination": "/index.html"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
