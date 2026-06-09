@@ -510,7 +510,7 @@ async function protegerApostar(req, res, next) {
 }
 
 // Reemplazar el endpoint anterior
-app.post('/api/apostar', protegerApostar, async (req, res) => {
+app.post('/api/apostar', async (req, res) => {
   try {
     const { uid, eventoId, cantidad, tipoApuesta, cuota } = req.body;
     
