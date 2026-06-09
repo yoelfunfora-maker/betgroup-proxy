@@ -520,24 +520,7 @@ app.post('/api/apostar', protegerApostar, async (req, res) => {
     
     console.log(`[APOSTAR] ${uid} → ${eventoId} (${tipoApuesta} $${cantidad})`);
     
-    // ✅ Descontar saldo del usuario (transaction atómica)
-    const refSaldo = admin.database().ref(`users/${uid}/creditoReal`);
-    const monto = req.body.amount || cantidad;
-    await refSaldo.transaction(current => {
-      const saldo = current || 0;
-      if (saldo >= monto) return saldo - monto;
-      return;
-    });
-
-    // ✅ Descontar saldo del usuario (transaction atómica)
-      const monto = req.body.amount || cantidad;
-      await refSaldo.transaction(current => {
-        const saldo = current || 0;
-        if (saldo >= monto) return saldo - monto;
-        return;
-      });
-
-      // Crear apuesta en Firebase
+    // Crear apuesta en Firebase
     const ref = admin.database().ref(`apuestas/${uid}`);
     const betId = Date.now();
     
