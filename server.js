@@ -510,54 +510,7 @@ async function protegerApostar(req, res, next) {
 }
 
 // Reemplazar el endpoint anterior
-app.post('/api/apostar', async (req, res) => {
-  try {
-    const { uid, amount, eventName, type, odds, sport } = req.body;
-    if (!uid || !amount || !eventName) {
-      return res.status(400).json({ error: 'Faltan parámetros: uid, amount, eventName' });
-    }
-
-    const db = admin.database();
-    const userRef = db.ref(`users/${uid}/creditoReal`);
-
-    // Usar transacción atómica
-    const result = await userRef.transaction((saldo) => {
-      if (saldo === null) saldo = 0;
-      if (saldo >= amount) {
-        return saldo - amount;
-      }
-      return; // Abortar transacción
-    });
-
-    if (!result.committed) {
-      return res.status(400).json({ error: 'Saldo insuficiente o error en la transacción' });
-    }
-
-    // Registrar apuesta
-    const apuestaRef = db.ref('apuestas').push();
-    await apuestaRef.set({
-      uid,
-      eventName,
-      type,
-      monto: amount,
-      cuota: odds,
-      sport: sport || 'soccer',
-      estado: 'pendiente',
-      fecha: Date.now()
-    });
-
-    // Notificar a Telegram
-    const msgTG = `💰 <b>NUEVA APUESTA</b>\n👤 ${uid}\n📊 ${type}\n💵 $${amount}\n📈 Cuota: ${odds}x`;
-    try { await tgNotify(msgTG); } catch(e) { console.log('[TG] Error:', e.message); }
-
-    console.log(`[APOSTAR] ${uid} apostó ${amount} CR en ${eventName}`);
-    return res.json({ success: true, message: 'Apuesta confirmada' });
-
-  } catch (err) {
-    console.error('[APOSTAR] Error:', err);
-    return res.status(500).json({ error: 'Error interno del servidor' });
-  }
-}));
+);
 
 app.get('/api/ping', (req, res) => {
   res.json({ ok: true, timestamp: Date.now() });
@@ -1005,6 +958,56 @@ console.log('⏰ Motor automático de liquidación activado (cada 10 minutos).')
 // ════════════════════════════════════════════════════════════════════
 // 🔧 ENDPOINT DE LIQUIDACIÓN (TESTING/ADMIN)
 // ════════════════════════════════════════════════════════════════════
+
+app.post('/api/apostar', async (req, res) => {
+  try {
+    const { uid, amount, eventName, type, odds, sport } = req.body;
+    if (!uid || !amount || !eventName) {
+      return res.status(400).json({ error: 'Faltan parámetros: uid, amount, eventName' });
+    }
+
+    const db = admin.database();
+    const userRef = db.ref(`users/${uid}/creditoReal`);
+
+    // Usar transacción atómica
+    const result = await userRef.transaction((saldo) => {
+      if (saldo === null) saldo = 0;
+      if (saldo >= amount) {
+        return saldo - amount;
+      }
+      return; // Abortar transacción
+    });
+
+    if (!result.committed) {
+      return res.status(400).json({ error: 'Saldo insuficiente o error en la transacción' });
+    }
+
+    // Registrar apuesta
+    const apuestaRef = db.ref('apuestas').push();
+    await apuestaRef.set({
+      uid,
+      eventName,
+      type,
+      monto: amount,
+      cuota: odds,
+      sport: sport || 'soccer',
+      estado: 'pendiente',
+      fecha: Date.now()
+    });
+
+    // Notificar a Telegram
+    const msgTG = `💰 <b>NUEVA APUESTA</b>\n👤 ${uid}\n📊 ${type}\n💵 $${amount}\n📈 Cuota: ${odds}x`;
+    try { await tgNotify(msgTG); } catch(e) { console.log('[TG] Error:', e.message); }
+
+    console.log(`[APOSTAR] ${uid} apostó ${amount} CR en ${eventName}`);
+    return res.json({ success: true, message: 'Apuesta confirmada' });
+
+  } catch (err) {
+    console.error('[APOSTAR] Error:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 
 app.post('/api/liquidar', async (req, res) => {
   try {
