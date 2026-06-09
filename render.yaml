@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: betgroup-proxy-v2
+    env: node
+    repo: https://github.com/yoelfunfora-maker/betgroup-proxy
+    branch: main
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: FIREBASE_SERVICE_ACCOUNT_B64
+        sync: false
+      - key: ODDS_API_KEY_1
+        sync: false
+      - key: ODDS_API_KEY_2
+        sync: false
+      - key: OPENROUTER_KEY
+        sync: false
