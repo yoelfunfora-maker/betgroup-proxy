@@ -430,7 +430,7 @@ async function precalentarCache() {
   const resultados = await Promise.allSettled(
     deportesActivos.map(({ path, sport }) => 
       fetchESPN(path).then(data => parseEvents(data, sport)).catch(() => [])
-    )
+
   const todos = [];
   resultados.forEach(r => {
     if (r.status === 'fulfilled' && Array.isArray(r.value)) {
@@ -508,6 +508,7 @@ async function protegerApostar(req, res, next) {
 }
 
 // Reemplazar el endpoint anterior
+
 app.get('/api/ping', (req, res) => {
   res.json({ ok: true, timestamp: Date.now() });
 });
@@ -540,6 +541,7 @@ app.get('/api/settle', async (req, res) => {
           eventResult = fixturesCache.data.find(e =>
             (e.local + ' vs ' + e.visitante) === apuesta.eventoNombre ||
             (e.visitante + ' vs ' + e.local) === apuesta.eventoNombre
+
         }
 
         if (!eventResult || eventResult.estado === 'scheduled' || eventResult.estado === 'live') {
