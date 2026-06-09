@@ -431,8 +431,6 @@ async function precalentarCache() {
     deportesActivos.map(({ path, sport }) => 
       fetchESPN(path).then(data => parseEvents(data, sport)).catch(() => [])
     )
-  );
-
   const todos = [];
   resultados.forEach(r => {
     if (r.status === 'fulfilled' && Array.isArray(r.value)) {
@@ -510,8 +508,6 @@ async function protegerApostar(req, res, next) {
 }
 
 // Reemplazar el endpoint anterior
-);
-
 app.get('/api/ping', (req, res) => {
   res.json({ ok: true, timestamp: Date.now() });
 });
@@ -544,7 +540,6 @@ app.get('/api/settle', async (req, res) => {
           eventResult = fixturesCache.data.find(e =>
             (e.local + ' vs ' + e.visitante) === apuesta.eventoNombre ||
             (e.visitante + ' vs ' + e.local) === apuesta.eventoNombre
-          );
         }
 
         if (!eventResult || eventResult.estado === 'scheduled' || eventResult.estado === 'live') {
@@ -930,7 +925,7 @@ app.post('/api/agent-order', async (req, res) => {
         req.on("error", reject); req.write(data); req.end();
       });
       prompt = parametros || tarea;
-      const data = JSON.stringify({ model: "openai/gpt-oss-120b:free", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
+      data = JSON.stringify({ model: "openai/gpt-oss-120b:free", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
       resultado = await new Promise((resolve, reject) => {
         const req = https.request({ hostname: "openrouter.ai", path: "/api/v1/chat/completions", method: "POST", headers: { "Authorization": `Bearer ${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 || "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"}`, "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
         req.on("error", reject); req.write(data); req.end();
@@ -960,10 +955,11 @@ console.log('⏰ Motor automático de liquidación activado (cada 10 minutos).')
 // 🔧 ENDPOINT DE LIQUIDACIÓN (TESTING/ADMIN)
 // ════════════════════════════════════════════════════════════════════
 
-// ==================== NUEVO ENDPOINT DE APUESTAS (RECONSTRUCCIÓN) ====================
+// ==================== NUEVO ENDPOINT DE APUESTAS ====================
 app.post('/api/apostar', async (req, res) => {
   try {
-    const { uid, amount, eventName, type, odds, sport } = req.body;
+    const { uid, amount, type, odds, sport } = req.body;
+    const eventName = req.body.eventName || req.body.evento || '';
     if (!uid || !amount || !eventName) {
       return res.status(400).json({ error: 'Faltan parámetros: uid, amount, eventName' });
     }
@@ -971,42 +967,30 @@ app.post('/api/apostar', async (req, res) => {
     const db = admin.database();
     const userRef = db.ref(`users/${uid}/creditoReal`);
 
-    // Usar transacción atómica
     const result = await userRef.transaction((saldo) => {
       if (saldo === null) saldo = 0;
-      if (saldo >= amount) {
-        return saldo - amount;
-      }
-      return; // Abortar transacción
+      if (saldo >= amount) return saldo - amount;
+      return;
     });
 
     if (!result.committed) {
-      return res.status(400).json({ error: 'Saldo insuficiente o error en la transacción' });
+      return res.status(400).json({ error: 'Saldo insuficiente' });
     }
 
-    // Registrar apuesta
     const apuestaRef = db.ref('apuestas').push();
     await apuestaRef.set({
-      uid,
-      eventName,
-      type,
-      monto: amount,
-      cuota: odds,
-      sport: sport || 'soccer',
-      estado: 'pendiente',
-      fecha: Date.now()
+      uid, eventName, type, monto: amount, cuota: odds,
+      sport: sport || 'soccer', estado: 'pendiente', fecha: Date.now()
     });
 
-    // Notificar a Telegram
     const msgTG = `💰 <b>NUEVA APUESTA</b>\n👤 ${uid}\n📊 ${type}\n💵 $${amount}\n📈 Cuota: ${odds}x`;
-    try { await tgNotify(msgTG); } catch(e) { console.log('[TG] Error:', e.message); }
+    try { await tgNotify(msgTG); } catch(e) {}
 
     console.log(`[APOSTAR] ${uid} apostó ${amount} CR en ${eventName}`);
     return res.json({ success: true, message: 'Apuesta confirmada' });
-
   } catch (err) {
     console.error('[APOSTAR] Error:', err);
-    return res.status(500).json({ error: 'Error interno del servidor' });
+    return res.status(500).json({ error: 'Error interno' });
   }
 });
 
