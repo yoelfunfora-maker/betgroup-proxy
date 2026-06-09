@@ -510,15 +510,11 @@ async function protegerApostar(req, res, next) {
 }
 
 // Reemplazar el endpoint anterior
-app.post('/api/apostar', async (req, res) => {
+app.post('/api/apostar', protegerApostar, async (req, res) => {
   try {
     const { uid, eventoId, cantidad, tipoApuesta, cuota } = req.body;
-    const eventName = req.body.eventName || req.body.evento || eventoId;
-    const amount = cantidad || req.body.amount;
-    const type = tipoApuesta || req.body.type;
-    const odds = cuota || req.body.odds;
     
-    if (!uid || !eventName || !amount || !type || !odds) {
+    if (!uid || !eventoId || !cantidad || !tipoApuesta || !cuota) {
       return res.status(400).json({ error: 'Faltan parámetros' });
     }
     
@@ -539,17 +535,17 @@ app.post('/api/apostar', async (req, res) => {
     
     await ref.child(betId).set({
       betId: betId,
-      eventoId: eventName,
-      tipo: type,
-      monto: amount,
-      cuota: odds,
+      eventoId: eventoId,
+      tipo: tipoApuesta,
+      monto: cantidad,
+      cuota: cuota,
       ganancia: 0,
       estado: 'pendiente',
       fecha: new Date().toISOString()
     });
     
     // Notificar Telegram
-    const msgTG = `💰 <b>NUEVA APUESTA</b>\n👤 ${uid}\n📊 ${type}\n💵 $${amount}\n📈 Cuota: ${odds}x`;
+    const msgTG = `💰 <b>NUEVA APUESTA</b>\n👤 ${uid}\n📊 ${tipoApuesta}\n💵 $${cantidad}\n📈 Cuota: ${cuota}x`;
     try { await tgNotify(msgTG); } catch(e) { console.log('[TG] Error:', e.message); }
     
     res.json({ 
@@ -982,9 +978,9 @@ app.post('/api/agent-order', async (req, res) => {
         req.on("error", reject); req.write(data); req.end();
       });
       prompt = parametros || tarea;
-      data = JSON.stringify({ model: "openai/gpt-oss-120b:free", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
+      const data = JSON.stringify({ model: "openai/gpt-oss-120b:free", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
       resultado = await new Promise((resolve, reject) => {
-        const req = https.request({ hostname: "openrouter.ai", path: "/api/v1/chat/completions", method: "POST", headers: { "Authorization": `Bearer ${process.env.OPENROUTER_KEY || "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"}`, "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
+        const req = https.request({ hostname: "openrouter.ai", path: "/api/v1/chat/completions", method: "POST", headers: { "Authorization": `Bearer ${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 || "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"}`, "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
         req.on("error", reject); req.write(data); req.end();
       });
     } else {
@@ -1031,25 +1027,8 @@ app.post('/api/liquidar', async (req, res) => {
       resueltoEn: Date.now()
     });
 
-    // ✅ FIX A: Acreditar ganancia al usuario si ganó
-    if (estado === 'ganada') {
-      const montoGanancia = ganancia || 0;
-      if (montoGanancia > 0) {
-        await admin.database().ref(`users/${uid}/creditoReal`).transaction(current => {
-          return (current || 0) + montoGanancia;
-        });
-        await admin.database().ref(`historial/${uid}`).push({
-          tipo: 'cobro_ganancia',
-          apuestaId: betId,
-          monto: montoGanancia,
-          timestamp: Date.now()
-        });
-        console.log(`[LIQUIDAR] ✅ Ganancia acreditada: ${montoGanancia} CR a ${uid}`);
-      }
-    }
-
     // Enviar notificación Telegram
-    const msgTG = `✅ <b>APUESTA LIQUIDADA</b>\n💰 ${betId}\n📊 Estado: ${estado}\n💵 Ganancia: ${ganancia}\n📝 ${marcador || 'Sin marcador'}`;
+    const msgTG = `✅ <b>APUESTA LIQUIDADA</b>\n💰 ${betId}\n📊 Estado: ${estado}\n💵 Ganancia: $${ganancia}\n📝 ${marcador || 'Sin marcador'}`;
     try { await tgNotify(msgTG); } catch(e) { console.log('[TG] Error:', e.message); }
 
     // Verificar que se guardó
@@ -1069,5 +1048,3 @@ app.post('/api/liquidar', async (req, res) => {
   }
 });
 
-// Force deploy Mon Jun  8 22:55:33 EDT 2026
-// Force deploy Tue Jun  9 01:52:56 EDT 2026
