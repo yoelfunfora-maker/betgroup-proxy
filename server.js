@@ -514,7 +514,7 @@ app.post('/api/apostar', async (req, res) => {
   try {
     const { uid, eventoId, cantidad, tipoApuesta, cuota } = req.body;
     
-    if (!uid || !eventoId || !cantidad || !tipoApuesta || !cuota) {
+    if (!uid || !eventName || !amount || !type || !odds) {
       return res.status(400).json({ error: 'Faltan parámetros' });
     }
     
