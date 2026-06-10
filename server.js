@@ -427,6 +427,36 @@ app.post('/api/apostar', async (req, res) => {
 
 // ==================== INICIAR ====================
 
+
+// ==================== ENDPOINT SALDO REAL ====================
+
+app.get('/api/saldo/:uid', async (req, res) => {
+  const { uid } = req.params;
+
+  if (!uid || uid.length < 10) {
+    return res.status(400).json({ error: 'UID inválido' });
+  }
+
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Firebase no configurado' });
+    }
+
+    const snap = await db.ref(`users/${uid}/creditoReal`).once('value');
+    const saldo = snap.val();
+
+    res.json({
+      uid,
+      creditoReal: saldo !== null && saldo !== undefined ? saldo : 0,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Error /api/saldo:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`✅ Proxy escuchando en puerto ${PORT}`);
   precalentarCache();
