@@ -436,6 +436,40 @@ app.post('/api/chat', async (req, res) => {
 });
 
 
+
+app.get('/api/verificacion-geminis', async (req, res) => {
+  try {
+    const estado = {
+      proxy: 'ok',
+      agentes: (await axios.get('https://betgroup-proxy-v2.onrender.com/api/agents-status', { timeout: 5000 })).data?.agents || {},
+      eventos: (await axios.get('https://betgroup-proxy-v2.onrender.com/api/fixtures', { timeout: 5000 })).data?.total || 0,
+      chatbot: (await axios.post('https://betgroup-proxy-v2.onrender.com/api/chat', { mensaje: 'Test' }, { timeout: 5000 })).data?.success || false
+    };
+    const snap = await db.ref('users/BG_mq7rch3t_h6sjfs1h/creditoReal').once('value');
+    estado.saldo_firebase = snap.val();
+    const respSaldo = await axios.get('https://betgroup-proxy-v2.onrender.com/api/saldo/BG_mq7rch3t_h6sjfs1h', { timeout: 5000 });
+    estado.saldo_endpoint = respSaldo.data?.creditoReal;
+
+    const geminiKey = process.env.GEMINI_API_KEY;
+    const prompt = 'Eres el verificador interno de BetGroup Pro. Analiza estos datos y genera un informe breve para el Comandante. Indica claramente si hay problemas críticos. Datos: ' + JSON.stringify(estado);
+    const resp = await axios.post(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
+      { contents: [{ parts: [{ text: prompt }] }] },
+      { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 10000 }
+    );
+    const informe = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Sin informe';
+
+    await axios.post('https://api.telegram.org/bot8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs/sendMessage', {
+      chat_id: '-5154764705',
+      text: '📊 <b>INFORME DE GEMINIS02</b>\n\n' + informe,
+      parse_mode: 'HTML'
+    }, { timeout: 5000 });
+
+    res.json({ success: true, estado, informe });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+
 app.listen(PORT, () => {
   console.log(`✅ Proxy escuchando en puerto ${PORT}`);
   precalentarCache();
