@@ -220,7 +220,7 @@ async function enriquecerConCuotas(eventos) {
         }
       }
     } catch(err) {
-      console.error(`Error cuotas para ${evento.local}:`, err.message);
+      console.error(`Error cuotas para ${evento.local} (sportKey: ${sportKey}, URL: ${url}):`, err.message);
     }
   }
 
