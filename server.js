@@ -29,6 +29,28 @@ try {
   });
   
   console.log('✅ Firebase Admin SDK inicializado');
+
+// ==================== NOTIFICACIÓN DE ERRORES A TELEGRAM ====================
+const TELEGRAM_BOT_TOKEN = '8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs';
+const TELEGRAM_CHAT_ID = '-5154764705';
+
+function notifyTelegram(texto) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  require('https').get(`${url}?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(texto)}`).on('error', () => {});
+}
+
+process.on('uncaughtException', (err) => {
+  console.error('❌ Error no capturado:', err.message);
+  notifyTelegram(`🚨 BetGroup Proxy ERROR: ${err.message}\n\nStack: ${err.stack?.substring(0, 300) || 'sin stack'}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ Promesa rechazada:', reason);
+  notifyTelegram(`⚠️ BetGroup Proxy PROMESA RECHAZADA: ${reason?.message || reason}`);
+});
+// ==================== FIN NOTIFICACIÓN TELEGRAM ====================
+
+
   db = admin.database();
 } catch(error) {
   console.error('Error al inicializar Firebase Admin SDK:', error.message);
