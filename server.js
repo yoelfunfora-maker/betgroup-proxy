@@ -521,36 +521,46 @@ app.get('/api/saldo/:uid', async (req, res) => {
 
 
 
-// ==================== ENDPOINTS DE PRUEBA DE AGENTES ====================
 
-app.post('/api/test-gemini', async (req, res) => {
+
+
+
+// ==================== ENDPOINT DE ESTADO DE AGENTES ====================
+
+app.get('/api/agents-status', async (req, res) => {
+  const status = { gemini: 'unknown', groq: 'unknown', tavily: 'unknown' };
+  
+  // Probar Gemini
   const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) return res.status(500).json({ error: 'GEMINI_API_KEY no configurada' });
-  try {
-    const resp = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiKey}`,
-      { contents: [{ parts: [{ text: 'Responde solo: operativo' }] }] },
-      { timeout: 10000 }
-    );
-    res.json({ success: true, data: resp.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'sin respuesta' });
-  } catch(e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
+  if (geminiKey) {
+    try {
+      const resp = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        { contents: [{ parts: [{ text: 'OK' }] }] },
+        { timeout: 8000 }
+      );
+      status.gemini = resp.data?.candidates ? 'online' : 'error';
+    } catch(e) { status.gemini = 'error: ' + e.message; }
+  } else { status.gemini = 'no_key'; }
 
-app.post('/api/test-groq', async (req, res) => {
+  // Probar Groq
   const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey) return res.status(500).json({ error: 'GROQ_API_KEY no configurada' });
-  try {
-    const resp = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
-      { model: 'mixtral-8x7b-32768', messages: [{ role: 'user', content: 'Responde solo: operativo' }] },
-      { headers: { Authorization: `Bearer ${groqKey}` }, timeout: 10000 }
-    );
-    res.json({ success: true, data: resp.data?.choices?.[0]?.message?.content || 'sin respuesta' });
-  } catch(e) {
-    res.status(500).json({ success: false, error: e.message });
-  }
+  if (groqKey) {
+    try {
+      const resp = await axios.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        { model: 'mixtral-8x7b-32768', messages: [{ role: 'user', content: 'OK' }] },
+        { headers: { Authorization: `Bearer ${groqKey}` }, timeout: 8000 }
+      );
+      status.groq = resp.data?.choices ? 'online' : 'error';
+    } catch(e) { status.groq = 'error: ' + e.message; }
+  } else { status.groq = 'no_key'; }
+
+  // Verificar Tavily
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  status.tavily = tavilyKey ? 'configured' : 'no_key';
+
+  res.json({ success: true, agents: status, timestamp: new Date().toISOString() });
 });
 
 
