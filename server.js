@@ -31,8 +31,6 @@ try {
   console.log('✅ Firebase Admin SDK inicializado');
 
 // Claves de agentes (si no están en variables de entorno)
-if (!process.env.GEMINI_API_KEY) process.env.GEMINI_API_KEY = '';
-if (!process.env.GROQ_API_KEY) process.env.GROQ_API_KEY = '';
 
 
 // ==================== NOTIFICACIÓN DE ERRORES A TELEGRAM ====================
