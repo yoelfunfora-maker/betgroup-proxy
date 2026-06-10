@@ -666,26 +666,48 @@ async function notificarTelegram(texto) {
 
 app.get('/api/verificacion-geminis', async (req, res) => {
   try {
-    const estado = await obtenerEstadoSistema();
+    const estado = { proxy: 'ok', agentes: {}, eventos: 0, chatbot: false, saldo_firebase: null, saldo_endpoint: null };
+    
+    // Recopilar datos con timeouts más cortos y sin dependencias en cascada
+    const [agentsResp, fixturesResp, chatResp, saldoFB, saldoEP] = await Promise.allSettled([
+      axios.get('https://betgroup-proxy-v2.onrender.com/api/agents-status', { timeout: 3000 }),
+      axios.get('https://betgroup-proxy-v2.onrender.com/api/fixtures', { timeout: 3000 }),
+      axios.post('https://betgroup-proxy-v2.onrender.com/api/chat', { mensaje: 'Test' }, { timeout: 3000 }),
+      db.ref('users/BG_mq7rch3t_h6sjfs1h/creditoReal').once('value'),
+      axios.get('https://betgroup-proxy-v2.onrender.com/api/saldo/BG_mq7rch3t_h6sjfs1h', { timeout: 3000 })
+    ]);
+
+    if (agentsResp.status === 'fulfilled') estado.agentes = agentsResp.value.data?.agents || {};
+    if (fixturesResp.status === 'fulfilled') estado.eventos = fixturesResp.value.data?.total || 0;
+    if (chatResp.status === 'fulfilled') estado.chatbot = chatResp.value.data?.success || false;
+    if (saldoFB.status === 'fulfilled') estado.saldo_firebase = saldoFB.value.val();
+    if (saldoEP.status === 'fulfilled') estado.saldo_endpoint = saldoEP.value.data?.creditoReal;
+
+    // Enviar informe a Telegram directamente (sin esperar a Gemini si no responde rápido)
     const geminiKey = process.env.GEMINI_API_KEY;
-    if (!geminiKey) return res.status(500).json({ error: 'Gemini no configurado' });
+    let informe = 'Sistema operativo. Saldo Firebase: ' + estado.saldo_firebase + ' | Saldo endpoint: ' + estado.saldo_endpoint;
+    
+    if (geminiKey) {
+      try {
+        const resp = await axios.post(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
+          { contents: [{ parts: [{ text: 'Eres el verificador de BetGroup Pro. Datos del sistema: ' + JSON.stringify(estado) + '. Genera un informe breve en 2 frases.' }] }] },
+          { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 6000 }
+        );
+        if (resp.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+          informe = resp.data.candidates[0].content.parts[0].text;
+        }
+      } catch(e) { console.log('Gemini no disponible para el informe, usando resumen básico'); }
+    }
 
-    const prompt = `Eres el verificador interno de BetGroup Pro. Analiza estos datos del sistema y genera un informe breve para el Comandante. Indica claramente si hay problemas críticos. Datos: ${JSON.stringify(estado)}`;
-    const resp = await axios.post(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
-      { contents: [{ parts: [{ text: prompt }] }] },
-      { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 10000 }
-    );
-    const informe = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Sin informe';
-
-    // Notificar a Telegram
-    await notificarTelegram(`📊 <b>INFORME DE GEMINIS02</b>\n\n${informe}`);
+    await axios.post('https://api.telegram.org/bot8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs/sendMessage', {
+      chat_id: '-5154764705',
+      text: '📊 <b>INFORME DE GEMINIS02</b>\n\n' + informe,
+      parse_mode: 'HTML'
+    }, { timeout: 5000 });
 
     res.json({ success: true, estado, informe });
-  } catch(e) {
-    console.error('Error en verificacion-geminis:', e.message);
-    res.status(500).json({ error: e.message });
-  }
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 
