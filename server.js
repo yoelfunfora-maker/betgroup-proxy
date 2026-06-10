@@ -522,7 +522,16 @@ app.post('/api/apostar', async (req, res) => {
       return res.status(400).json({ error: 'Faltan parámetros' });
     }
     
-    console.log(`[APOSTAR] ${uid} → ${eventoId} (${tipoApuesta} $${cantidad})`);
+      console.log('[APOSTAR] Iniciando transacción de descuento...');
+    const refSaldo = admin.database().ref(`users/${uid}/creditoReal`);
+    const monto = amount;
+    await refSaldo.transaction(current => {
+      const saldo = current || 0;
+      console.log('[APOSTAR] Saldo actual:', saldo, ' - Descontando:', monto);
+      if (saldo >= monto) return saldo - monto;
+      return;
+    });
+    console.log('[APOSTAR] Transacción completada');
     
     // ✅ Descontar saldo del usuario (transaction atómica)
     const refSaldo = admin.database().ref(`users/${uid}/creditoReal`);
