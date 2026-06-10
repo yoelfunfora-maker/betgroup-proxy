@@ -535,7 +535,7 @@ app.get('/api/agents-status', async (req, res) => {
   if (geminiKey) {
     try {
       const resp = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
         { contents: [{ parts: [{ text: 'OK' }] }] },
         { timeout: 8000 }
       );
@@ -549,7 +549,7 @@ app.get('/api/agents-status', async (req, res) => {
     try {
       const resp = await axios.post(
         'https://api.groq.com/openai/v1/chat/completions',
-        { model: 'mixtral-8x7b-32768', messages: [{ role: 'user', content: 'OK' }] },
+        { model: 'llama3-8b-8192', messages: [{ role: 'user', content: 'OK' }] },
         { headers: { Authorization: `Bearer ${groqKey}` }, timeout: 8000 }
       );
       status.groq = resp.data?.choices ? 'online' : 'error';
