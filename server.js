@@ -181,28 +181,22 @@ function parseEvents(espnData, sport) {
 // ==================== ENRIQUECER CON CUOTAS ====================
 
 
-// ==================== MOTOR DE COINCIDENCIA AMPLIADO ====================
-function normalizar(texto) {
-  return texto
+
+// ==================== ENRIQUECER CON CUOTAS ====================
+
+function limpiarNombre(nombre) {
+  return nombre
     .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9ñ ]/g, ' ')
-    .replace(/\b(fc|cf|sc|ac|united|city|club|deportivo|real|san|los|las|the|of)\b/g, ' ')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quitar tildes
+    .replace(/\b(new york|los angeles|san francisco|san diego|tampa bay|kansas city|st louis|st. louis|green bay|golden state|oklahoma city|portland trail|new england|new orleans)\b/g, '') // quitar ciudades comunes
+    .replace(/[^a-z0-9ñ ]/g, ' ') // solo letras, números y espacios
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function scoreCoincidencia(nombreESPN, nombreAPI) {
-  const tok1 = normalizar(nombreESPN).split(' ').filter(t => t.length > 0);
-  const tok2 = normalizar(nombreAPI).split(' ').filter(t => t.length > 0);
-  if (!tok1.length || !tok2.length) return 0;
-  const coincidencias = tok1.filter(t => tok2.includes(t)).length;
-  return coincidencias / tok1.length;
-}
-
 async function enriquecerConCuotas(eventos) {
   const apiKey = getApiKey();
-  
+
   if (!apiKey) {
     console.warn('⚠️ Sin The Odds API Key - usando cuotas por defecto');
     return eventos;
@@ -222,12 +216,18 @@ async function enriquecerConCuotas(eventos) {
     try {
       const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&markets=h2h&regions=us&limit=5`;
       const response = await axios.get(url, { timeout: 5000 });
-      
+
       if (response.data?.data) {
         for (const game of response.data.data) {
-          const scoreLocal = scoreCoincidencia(evento.local, game.home_team || '');
-          const scoreVisitante = scoreCoincidencia(evento.visitante, game.away_team || '');
-          if (scoreLocal >= 0.7 && scoreVisitante >= 0.7) {
+          const localLimpio = limpiarNombre(evento.local);
+          const visitanteLimpio = limpiarNombre(evento.visitante);
+          const homeLimpio = limpiarNombre(game.home_team || '');
+          const awayLimpio = limpiarNombre(game.away_team || '');
+
+          if (
+            (homeLimpio.includes(localLimpio) || localLimpio.includes(homeLimpio)) &&
+            (awayLimpio.includes(visitanteLimpio) || visitanteLimpio.includes(awayLimpio))
+          ) {
             const bookmakers = game.bookmakers?.[0];
             if (bookmakers?.markets?.[0]?.outcomes) {
               const outcomes = bookmakers.markets[0].outcomes;
@@ -245,6 +245,7 @@ async function enriquecerConCuotas(eventos) {
 
   return eventos;
 }
+
 
 // ==================== PRECALENTAR CACHÉ ====================
 
