@@ -520,6 +520,40 @@ app.get('/api/saldo/:uid', async (req, res) => {
 });
 
 
+
+// ==================== ENDPOINTS DE PRUEBA DE AGENTES ====================
+
+app.post('/api/test-gemini', async (req, res) => {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return res.status(500).json({ error: 'GEMINI_API_KEY no configurada' });
+  try {
+    const resp = await axios.post(
+      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+      { contents: [{ parts: [{ text: 'Responde solo: operativo' }] }] },
+      { timeout: 10000 }
+    );
+    res.json({ success: true, data: resp.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'sin respuesta' });
+  } catch(e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/test-groq', async (req, res) => {
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!groqKey) return res.status(500).json({ error: 'GROQ_API_KEY no configurada' });
+  try {
+    const resp = await axios.post(
+      'https://api.groq.com/openai/v1/chat/completions',
+      { model: 'mixtral-8x7b-32768', messages: [{ role: 'user', content: 'Responde solo: operativo' }] },
+      { headers: { Authorization: `Bearer ${groqKey}` }, timeout: 10000 }
+    );
+    res.json({ success: true, data: resp.data?.choices?.[0]?.message?.content || 'sin respuesta' });
+  } catch(e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`✅ Proxy escuchando en puerto ${PORT}`);
   precalentarCache();
