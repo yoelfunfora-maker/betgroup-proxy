@@ -528,7 +528,7 @@ app.post('/api/test-gemini', async (req, res) => {
   if (!geminiKey) return res.status(500).json({ error: 'GEMINI_API_KEY no configurada' });
   try {
     const resp = await axios.post(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiKey}`,
       { contents: [{ parts: [{ text: 'Responde solo: operativo' }] }] },
       { timeout: 10000 }
     );
