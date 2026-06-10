@@ -534,7 +534,6 @@ app.post('/api/apostar', async (req, res) => {
     console.log('[APOSTAR] Transacción completada');
     
     // ✅ Descontar saldo del usuario (transaction atómica)
-    const refSaldo = admin.database().ref(`users/${uid}/creditoReal`);
     const monto = amount;
     await refSaldo.transaction(current => {
       const saldo = current || 0;
