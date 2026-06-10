@@ -166,9 +166,9 @@ function parseEvents(espnData, sport) {
         minuto: ev.status?.displayClock || null,
         estado: isLive ? 'live' : 'scheduled',
         horaInicio: ev.date || null,
-        cuota_local: 1.8,
-        cuota_empate: 3.5,
-        cuota_visitante: 2.0
+        cuota_local: null,
+        cuota_empate: null,
+        cuota_visitante: null
       });
     } catch(e) { 
       /* evento inválido */ 
@@ -179,6 +179,26 @@ function parseEvents(espnData, sport) {
 }
 
 // ==================== ENRIQUECER CON CUOTAS ====================
+
+
+// ==================== MOTOR DE COINCIDENCIA AMPLIADO ====================
+function normalizar(texto) {
+  return texto
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9ñ ]/g, ' ')
+    .replace(/\b(fc|cf|sc|ac|united|city|club|deportivo|real|san|los|las|the|of)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scoreCoincidencia(nombreESPN, nombreAPI) {
+  const tok1 = normalizar(nombreESPN).split(' ').filter(t => t.length > 0);
+  const tok2 = normalizar(nombreAPI).split(' ').filter(t => t.length > 0);
+  if (!tok1.length || !tok2.length) return 0;
+  const coincidencias = tok1.filter(t => tok2.includes(t)).length;
+  return coincidencias / tok1.length;
+}
 
 async function enriquecerConCuotas(eventos) {
   const apiKey = getApiKey();
@@ -205,10 +225,9 @@ async function enriquecerConCuotas(eventos) {
       
       if (response.data?.data) {
         for (const game of response.data.data) {
-          if (
-            (game.home_team?.includes(evento.local) || evento.local.includes(game.home_team)) &&
-            (game.away_team?.includes(evento.visitante) || evento.visitante.includes(game.away_team))
-          ) {
+          const scoreLocal = scoreCoincidencia(evento.local, game.home_team || '');
+          const scoreVisitante = scoreCoincidencia(evento.visitante, game.away_team || '');
+          if (scoreLocal >= 0.7 && scoreVisitante >= 0.7) {
             const bookmakers = game.bookmakers?.[0];
             if (bookmakers?.markets?.[0]?.outcomes) {
               const outcomes = bookmakers.markets[0].outcomes;
