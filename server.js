@@ -510,7 +510,7 @@ async function protegerApostar(req, res, next) {
 }
 
 // Reemplazar el endpoint anterior
-app.post('/api/apostar', protegerApostar, async (req, res) => {
+app.post('/api/apostar', async (req, res) => {
   try {
     const { uid, eventoId, cantidad, tipoApuesta, cuota } = req.body;
     
@@ -969,7 +969,6 @@ app.post('/api/agent-order', async (req, res) => {
         req.on("error", reject); req.write(data); req.end();
       });
       prompt = parametros || tarea;
-      data = JSON.stringify({ model: "openai/gpt-oss-120b:free", messages: [{ role: "user", content: prompt + " Responde en español." }], max_tokens: 1500 });
       resultado = await new Promise((resolve, reject) => {
         const req = https.request({ hostname: "openrouter.ai", path: "/api/v1/chat/completions", method: "POST", headers: { "Authorization": "Bearer " + (process.env.OPENROUTER_KEY || ""), "Content-Type": "application/json" } }, r => { let d=""; r.on("data", c => d+=c); r.on("end", () => resolve(JSON.parse(d))); });
         req.on("error", reject); req.write(data); req.end();
@@ -1017,6 +1016,23 @@ app.post('/api/liquidar', async (req, res) => {
       marcadorFinal: marcador || 'Liquidado',
       resueltoEn: Date.now()
     });
+
+    // ✅ FIX A: Acreditar ganancia al usuario si ganó
+    if (estado === 'ganada') {
+      const montoGanancia = ganancia || 0;
+      if (montoGanancia > 0) {
+        await admin.database().ref(`users/${uid}/creditoReal`).transaction(current => {
+          return (current || 0) + montoGanancia;
+        });
+        await admin.database().ref(`historial/${uid}`).push({
+          tipo: 'cobro_ganancia',
+          apuestaId: betId,
+          monto: montoGanancia,
+          timestamp: Date.now()
+        });
+        console.log(`[LIQUIDAR] ✅ Ganancia acreditada: ${montoGanancia} CR a ${uid}`);
+      }
+    }
 
     // Enviar notificación Telegram
     const msgTG = `✅ <b>APUESTA LIQUIDADA</b>\n💰 ${betId}\n📊 Estado: ${estado}\n💵 Ganancia: $${ganancia}\n📝 ${marcador || 'Sin marcador'}`;
