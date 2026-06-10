@@ -29,6 +29,33 @@ try {
   });
   
   console.log('✅ Firebase Admin SDK inicializado');
+
+// Claves de agentes (si no están en variables de entorno)
+if (!process.env.GEMINI_API_KEY) process.env.GEMINI_API_KEY = '';
+if (!process.env.GROQ_API_KEY) process.env.GROQ_API_KEY = '';
+
+
+// ==================== NOTIFICACIÓN DE ERRORES A TELEGRAM ====================
+const TELEGRAM_BOT_TOKEN = '8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs';
+const TELEGRAM_CHAT_ID = '-5154764705';
+
+function notifyTelegram(texto) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  require('https').get(`${url}?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(texto)}`).on('error', () => {});
+}
+
+process.on('uncaughtException', (err) => {
+  console.error('❌ Error no capturado:', err.message);
+  notifyTelegram(`🚨 BetGroup Proxy ERROR: ${err.message}\n\nStack: ${err.stack?.substring(0, 300) || 'sin stack'}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ Promesa rechazada:', reason);
+  notifyTelegram(`⚠️ BetGroup Proxy PROMESA RECHAZADA: ${reason?.message || reason}`);
+});
+// ==================== FIN NOTIFICACIÓN TELEGRAM ====================
+
+
   db = admin.database();
 } catch(error) {
   console.error('Error al inicializar Firebase Admin SDK:', error.message);
@@ -166,9 +193,9 @@ function parseEvents(espnData, sport) {
         minuto: ev.status?.displayClock || null,
         estado: isLive ? 'live' : 'scheduled',
         horaInicio: ev.date || null,
-        cuota_local: 1.8,
-        cuota_empate: 3.5,
-        cuota_visitante: 2.0
+        cuota_local: null,
+        cuota_empate: null,
+        cuota_visitante: null
       });
     } catch(e) { 
       /* evento inválido */ 
@@ -180,9 +207,83 @@ function parseEvents(espnData, sport) {
 
 // ==================== ENRIQUECER CON CUOTAS ====================
 
+
+
+// ==================== ENRIQUECER CON CUOTAS ====================
+
+function limpiarNombre(nombre) {
+  return nombre
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quitar tildes
+    .replace(/\b(new york|los angeles|san francisco|san diego|tampa bay|kansas city|st louis|st. louis|green bay|golden state|oklahoma city|portland trail|new england|new orleans)\b/g, '') // quitar ciudades comunes
+    .replace(/[^a-z0-9ñ ]/g, ' ') // solo letras, números y espacios
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+
+// Cache de cuotas por sportKey (12h de vida)
+const oddsCache = {};
+
+
+// ==================== RASTREADOR ATHOS (TAVILY) ====================
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
+
+async function enriquecerConAthos(eventos) {
+  if (!TAVILY_API_KEY) {
+    console.warn('⚠️ Sin TAVILY_API_KEY - no se pueden buscar cuotas');
+    return eventos;
+  }
+
+  for (const evento of eventos) {
+    // Solo buscar si no tiene cuotas reales aún
+    if (evento.cuota_local > 1.0 && evento.cuota_visitante > 1.0) continue;
+
+    const query = `cuotas apuestas ${evento.local} vs ${evento.visitante} ${evento.liga} ${evento.sport} oddschecker flashscore`;
+    
+    try {
+      const response = await axios.post('https://api.tavily.com/search', {
+        api_key: TAVILY_API_KEY,
+        query: query,
+        search_depth: 'advanced',
+        max_results: 5
+      }, { timeout: 10000 });
+
+      // Extraer cuotas de los resultados (parsing simple)
+      const cuotas = extraerCuotas(response.data?.results || [], evento);
+      if (cuotas) {
+        evento.cuota_local = cuotas.local;
+        evento.cuota_visitante = cuotas.visitante;
+        evento.cuota_empate = cuotas.empate || 3.5;
+      }
+    } catch(err) {
+      console.error(`Athos error para ${evento.local}:`, err.message);
+    }
+  }
+  return eventos;
+}
+
+function extraerCuotas(results, evento) {
+  // Buscar patrones de cuotas en los snippets (números con decimales)
+  const patron = /(\d+\.\d{2})/g;
+  let todas = [];
+  
+  for (const r of results) {
+    const matches = r.content?.match(patron) || [];
+    todas = todas.concat(matches.map(Number));
+  }
+  
+  if (todas.length >= 2) {
+    // Asumir que las dos primeras son local y visitante
+    return { local: todas[0], visitante: todas[1] };
+  }
+  return null;
+}
+// ==================== FIN ATHOS ====================
+
+
 async function enriquecerConCuotas(eventos) {
   const apiKey = getApiKey();
-  
   if (!apiKey) {
     console.warn('⚠️ Sin The Odds API Key - usando cuotas por defecto');
     return eventos;
@@ -195,37 +296,66 @@ async function enriquecerConCuotas(eventos) {
     'mma': 'mma_mixed_martial_arts'
   };
 
+  // Agrupar eventos por sportKey
+  const grupos = {};
   for (const evento of eventos) {
     const sportKey = sportKeyMap[evento.sport];
     if (!sportKey) continue;
+    if (!grupos[sportKey]) grupos[sportKey] = [];
+    grupos[sportKey].push(evento);
+  }
 
-    try {
-      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&markets=h2h&limit=5`;
-      const response = await axios.get(url, { timeout: 5000 });
-      
-      if (response.data?.data) {
-        for (const game of response.data.data) {
-          if (
-            (game.home_team?.includes(evento.local) || evento.local.includes(game.home_team)) &&
-            (game.away_team?.includes(evento.visitante) || evento.visitante.includes(game.away_team))
-          ) {
-            const bookmakers = game.bookmakers?.[0];
-            if (bookmakers?.markets?.[0]?.outcomes) {
-              const outcomes = bookmakers.markets[0].outcomes;
-              evento.cuota_local = outcomes.find(o => o.name === 'Home')?.price || evento.cuota_local;
-              evento.cuota_visitante = outcomes.find(o => o.name === 'Away')?.price || evento.cuota_visitante;
-            }
-            break;
+  // Procesar cada grupo
+  for (const [sportKey, eventosGrupo] of Object.entries(grupos)) {
+    const cacheEntry = oddsCache[sportKey];
+    let juegos = null;
+
+    // Usar caché si es válido (menos de 12h)
+    if (cacheEntry && (Date.now() - cacheEntry.timestamp) < 12 * 60 * 60 * 1000) {
+      juegos = cacheEntry.data;
+    } else {
+      try {
+        const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&markets=h2h&regions=us`;
+        const response = await axios.get(url, { timeout: 5000 });
+        if (response.data) {
+          juegos = response.data.data || response.data; // la API a veces devuelve {data: [...]}
+          oddsCache[sportKey] = { data: juegos, timestamp: Date.now() };
+        }
+      } catch(err) {
+        console.error(`Error cuotas para ${sportKey}:`, err.message);
+        continue; // seguir con el siguiente deporte
+      }
+    }
+
+    if (!juegos) continue;
+
+    // Ahora cruzar cada evento del grupo con los juegos obtenidos
+    for (const evento of eventosGrupo) {
+      for (const game of juegos) {
+        const localLimpio = limpiarNombre(evento.local);
+        const visitanteLimpio = limpiarNombre(evento.visitante);
+        const homeLimpio = limpiarNombre(game.home_team || '');
+        const awayLimpio = limpiarNombre(game.away_team || '');
+
+        if (
+          (homeLimpio.includes(localLimpio) || localLimpio.includes(homeLimpio)) &&
+          (awayLimpio.includes(visitanteLimpio) || visitanteLimpio.includes(awayLimpio))
+        ) {
+          const bookmakers = game.bookmakers?.[0];
+          if (bookmakers?.markets?.[0]?.outcomes) {
+            const outcomes = bookmakers.markets[0].outcomes;
+            evento.cuota_local = outcomes.find(o => o.name === 'Home')?.price || evento.cuota_local;
+            evento.cuota_visitante = outcomes.find(o => o.name === 'Away')?.price || evento.cuota_visitante;
           }
+          break;
         }
       }
-    } catch(err) {
-      console.error(`Error cuotas para ${evento.local}:`, err.message);
     }
   }
 
   return eventos;
 }
+
 
 // ==================== PRECALENTAR CACHÉ ====================
 
@@ -254,6 +384,12 @@ async function precalentarCache() {
   }
 
   await enriquecerConCuotas(allEvents);
+  // Si las cuotas no se obtuvieron, usar Athos
+  const sinCuotas = allEvents.filter(e => !e.cuota_local || e.cuota_local <= 1.0);
+  if (sinCuotas.length > 0) {
+    console.log(`Athos buscando cuotas para ${sinCuotas.length} eventos...`);
+    await enriquecerConAthos(allEvents);
+  }
 
   const response = {
     status: 'online',
@@ -360,16 +496,44 @@ app.post('/api/apostar', async (req, res) => {
 // ==================== INICIAR ====================
 
 
+// ==================== ENDPOINT SALDO REAL ====================
+
 app.get('/api/saldo/:uid', async (req, res) => {
   const { uid } = req.params;
-  if (!uid || uid.length < 10) return res.status(400).json({ error: 'UID inválido' });
+
+  if (!uid || uid.length < 10) {
+    return res.status(400).json({ error: 'UID inválido' });
+  }
+
   try {
-    if (!db) return res.status(500).json({ error: 'Firebase no configurado' });
+    if (!db) {
+      return res.status(500).json({ error: 'Firebase no configurado' });
+    }
+
     const snap = await db.ref(`users/${uid}/creditoReal`).once('value');
     const saldo = snap.val();
-    res.json({ uid, creditoReal: saldo !== null && saldo !== undefined ? saldo : 0, timestamp: new Date().toISOString() });
-  } catch(e) { console.error('Error /api/saldo:', e.message); res.status(500).json({ error: e.message }); }
+
+    res.json({
+      uid,
+      creditoReal: saldo !== null && saldo !== undefined ? saldo : 0,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Error /api/saldo:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
+
+
+
+
+
+
+
+// ==================== ENDPOINT DE ESTADO DE AGENTES ====================
+
+
+
 
 
 
@@ -379,31 +543,32 @@ app.get('/api/agents-status', async (req, res) => {
     Agente_groc01: 'unknown', 
     Athos_Tavily: 'unknown' 
   };
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const groqKey   = process.env.GROQ_API_KEY;
   
-  if (geminiKey) {
-    try {
-      const resp = await axios.post(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
-        { contents: [{ parts: [{ text: 'OK' }] }] },
-        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 8000 }
-      );
-      status.Geminis02 = resp.data?.candidates ? 'online' : 'error';
-    } catch(e) { status.Geminis02 = 'error: ' + e.message; }
-  } else { status.Geminis02 = 'no_key'; }
+  // Claves directas proporcionadas por el Comandante
+  const geminiKey = '';
+  const groqKey   = '';
+  
+  // Probar Geminis02
+  try {
+    const resp = await axios.post(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + geminiKey,
+      { contents: [{ parts: [{ text: 'OK' }] }] },
+      { timeout: 8000 }
+    );
+    status.Geminis02 = resp.data?.candidates ? 'online' : 'error';
+  } catch(e) { status.Geminis02 = 'error: ' + e.message; }
 
-  if (groqKey) {
-    try {
-      const resp = await axios.post(
-        'https://api.groq.com/openai/v1/chat/completions',
-        { model: 'llama-3.1-8b-instant', messages: [{ role: 'user', content: 'OK' }] },
-        { headers: { Authorization: 'Bearer ' + groqKey, 'Content-Type': 'application/json' }, timeout: 8000 }
-      );
-      status.Agente_groc01 = resp.data?.choices ? 'online' : 'error';
-    } catch(e) { status.Agente_groc01 = 'error: ' + e.message; }
-  } else { status.Agente_groc01 = 'no_key'; }
+  // Probar Agente_groc01
+  try {
+    const resp = await axios.post(
+      'https://api.groq.com/openai/v1/chat/completions',
+      { model: 'mixtral-8x7b-32768', messages: [{ role: 'user', content: 'OK' }] },
+      { headers: { Authorization: 'Bearer ' + groqKey }, timeout: 8000 }
+    );
+    status.Agente_groc01 = resp.data?.choices ? 'online' : 'error';
+  } catch(e) { status.Agente_groc01 = 'error: ' + e.message; }
 
+  // Verificar Athos (Tavily)
   const tavilyKey = process.env.TAVILY_API_KEY;
   status.Athos_Tavily = tavilyKey ? 'configured' : 'no_key';
 
@@ -411,47 +576,101 @@ app.get('/api/agents-status', async (req, res) => {
 });
 
 
+// ==================== CHATBOT AGENTE_GROC01 ====================
 
 app.post('/api/chat', async (req, res) => {
   const { mensaje } = req.body;
   if (!mensaje || typeof mensaje !== 'string' || mensaje.trim().length === 0) {
     return res.status(400).json({ error: 'Mensaje vacío o inválido' });
   }
+
   const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey) return res.status(500).json({ error: 'Agente no configurado' });
+  if (!groqKey) {
+    return res.status(500).json({ error: 'Agente no configurado' });
+  }
+
   try {
     const prompt = `Eres el asistente virtual de BetGroup Pro, una plataforma de apuestas deportivas. Responde de forma clara, breve y útil. Solo debes ayudar con dudas sobre cómo apostar, cómo registrarse, cómo funciona el sistema de créditos, cómo contactar con soporte y otras cuestiones operativas. No debes dar información sobre otros usuarios, resultados de apuestas ni datos internos del sistema. Pregunta del usuario: "${mensaje.trim()}"`;
+
     const resp = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
       {
         model: 'llama-3.1-8b-instant',
-        messages: [{ role: 'system', content: prompt }, { role: 'user', content: mensaje.trim() }],
-        max_tokens: 300, temperature: 0.7
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: mensaje.trim() }
+        ],
+        max_tokens: 300,
+        temperature: 0.7
       },
-      { headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+      {
+        headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+        timeout: 15000
+      }
     );
+
     const respuesta = resp.data?.choices?.[0]?.message?.content || 'Lo siento, no puedo responder en este momento.';
     res.json({ success: true, respuesta });
-  } catch(e) { console.error('Error /api/chat:', e.message); res.status(500).json({ error: 'Error al procesar la consulta' }); }
+  } catch (e) {
+    console.error('Error en /api/chat:', e.message);
+    res.status(500).json({ error: 'Error al procesar la consulta' });
+  }
 });
 
 
 
-app.get('/api/verificacion-geminis', async (req, res) => {
+// ==================== VERIFICADOR GEMINIS02 ====================
+
+async function obtenerEstadoSistema() {
+  const estado = { proxy: 'ok', agentes: {}, eventos: 0, chatbot: false, saldo_firebase: null, saldo_endpoint: null };
   try {
-    const estado = {
-      proxy: 'ok',
-      agentes: (await axios.get('https://betgroup-proxy-v2.onrender.com/api/agents-status', { timeout: 5000 })).data?.agents || {},
-      eventos: (await axios.get('https://betgroup-proxy-v2.onrender.com/api/fixtures', { timeout: 5000 })).data?.total || 0,
-      chatbot: (await axios.post('https://betgroup-proxy-v2.onrender.com/api/chat', { mensaje: 'Test' }, { timeout: 5000 })).data?.success || false
-    };
+    const agents = await axios.get('https://betgroup-proxy-v2.onrender.com/api/agents-status', { timeout: 5000 });
+    estado.agentes = agents.data?.agents || {};
+  } catch(e) { estado.agentes = { error: e.message }; }
+
+  try {
+    const fixtures = await axios.get('https://betgroup-proxy-v2.onrender.com/api/fixtures', { timeout: 5000 });
+    estado.eventos = fixtures.data?.total || 0;
+  } catch(e) { estado.eventos = -1; }
+
+  try {
+    const chat = await axios.post('https://betgroup-proxy-v2.onrender.com/api/chat',
+      { mensaje: 'Test' }, { timeout: 5000 });
+    estado.chatbot = chat.data?.success || false;
+  } catch(e) { estado.chatbot = false; }
+
+  // Leer saldo de usuario de prueba directamente desde Firebase
+  try {
     const snap = await db.ref('users/BG_mq7rch3t_h6sjfs1h/creditoReal').once('value');
     estado.saldo_firebase = snap.val();
-    const respSaldo = await axios.get('https://betgroup-proxy-v2.onrender.com/api/saldo/BG_mq7rch3t_h6sjfs1h', { timeout: 5000 });
-    estado.saldo_endpoint = respSaldo.data?.creditoReal;
+  } catch(e) { estado.saldo_firebase = 'error'; }
 
+  // Leer saldo desde el endpoint /api/saldo
+  try {
+    const resp = await axios.get('https://betgroup-proxy-v2.onrender.com/api/saldo/BG_mq7rch3t_h6sjfs1h', { timeout: 5000 });
+    estado.saldo_endpoint = resp.data?.creditoReal;
+  } catch(e) { estado.saldo_endpoint = 'error'; }
+
+  return estado;
+}
+
+async function notificarTelegram(texto) {
+  try {
+    await axios.post('https://api.telegram.org/bot8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs/sendMessage', {
+      chat_id: '-5154764705',
+      text: texto,
+      parse_mode: 'HTML'
+    }, { timeout: 5000 });
+  } catch(e) { console.error('Error notificando a Telegram:', e.message); }
+}
+
+app.get('/api/verificacion-geminis', async (req, res) => {
+  try {
+    const estado = await obtenerEstadoSistema();
     const geminiKey = process.env.GEMINI_API_KEY;
-    const prompt = 'Eres el verificador interno de BetGroup Pro. Analiza estos datos y genera un informe breve para el Comandante. Indica claramente si hay problemas críticos. Datos: ' + JSON.stringify(estado);
+    if (!geminiKey) return res.status(500).json({ error: 'Gemini no configurado' });
+
+    const prompt = `Eres el verificador interno de BetGroup Pro. Analiza estos datos del sistema y genera un informe breve para el Comandante. Indica claramente si hay problemas críticos. Datos: ${JSON.stringify(estado)}`;
     const resp = await axios.post(
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
       { contents: [{ parts: [{ text: prompt }] }] },
@@ -459,14 +678,14 @@ app.get('/api/verificacion-geminis', async (req, res) => {
     );
     const informe = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Sin informe';
 
-    await axios.post('https://api.telegram.org/bot8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs/sendMessage', {
-      chat_id: '-5154764705',
-      text: '📊 <b>INFORME DE GEMINIS02</b>\n\n' + informe,
-      parse_mode: 'HTML'
-    }, { timeout: 5000 });
+    // Notificar a Telegram
+    await notificarTelegram(`📊 <b>INFORME DE GEMINIS02</b>\n\n${informe}`);
 
     res.json({ success: true, estado, informe });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) {
+    console.error('Error en verificacion-geminis:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 
