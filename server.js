@@ -200,7 +200,7 @@ async function enriquecerConCuotas(eventos) {
     if (!sportKey) continue;
 
     try {
-      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&markets=h2h&limit=5`;
+      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&markets=h2h&regions=us&limit=5`;
       const response = await axios.get(url, { timeout: 5000 });
       
       if (response.data?.data) {
