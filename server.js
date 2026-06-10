@@ -513,30 +513,43 @@ async function protegerApostar(req, res, next) {
 app.post('/api/apostar', async (req, res) => {
   try {
     const { uid, eventoId, cantidad, tipoApuesta, cuota } = req.body;
+    const eventName = req.body.eventName || eventoId;
+    const amount = cantidad || req.body.amount;
+    const type = tipoApuesta || req.body.type;
+    const odds = cuota || req.body.odds;
     
-    if (!uid || !eventoId || !cantidad || !tipoApuesta || !cuota) {
+    if (!uid || !eventName || !amount || !type || !odds) {
       return res.status(400).json({ error: 'Faltan parámetros' });
     }
     
     console.log(`[APOSTAR] ${uid} → ${eventoId} (${tipoApuesta} $${cantidad})`);
     
+    // ✅ Descontar saldo del usuario (transaction atómica)
+    const refSaldo = admin.database().ref(`users/${uid}/creditoReal`);
+    const monto = amount;
+    await refSaldo.transaction(current => {
+      const saldo = current || 0;
+      if (saldo >= monto) return saldo - monto;
+      return;
+    });
+
     // Crear apuesta en Firebase
     const ref = admin.database().ref(`apuestas/${uid}`);
     const betId = Date.now();
     
     await ref.child(betId).set({
       betId: betId,
-      eventoId: eventoId,
-      tipo: tipoApuesta,
-      monto: cantidad,
-      cuota: cuota,
+      eventoId: eventName,
+      tipo: type,
+      monto: amount,
+      cuota: odds,
       ganancia: 0,
       estado: 'pendiente',
       fecha: new Date().toISOString()
     });
     
     // Notificar Telegram
-    const msgTG = `💰 <b>NUEVA APUESTA</b>\n👤 ${uid}\n📊 ${tipoApuesta}\n💵 $${cantidad}\n📈 Cuota: ${cuota}x`;
+    const msgTG = `💰 <b>NUEVA APUESTA</b>\n👤 ${uid}\n📊 ${type}\n💵 ${amount}\n📈 Cuota: ${odds}x`;
     try { await tgNotify(msgTG); } catch(e) { console.log('[TG] Error:', e.message); }
     
     res.json({ 
