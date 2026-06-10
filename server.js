@@ -220,6 +220,63 @@ function limpiarNombre(nombre) {
 // Cache de cuotas por sportKey (12h de vida)
 const oddsCache = {};
 
+
+// ==================== RASTREADOR ATHOS (TAVILY) ====================
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
+
+async function enriquecerConAthos(eventos) {
+  if (!TAVILY_API_KEY) {
+    console.warn('⚠️ Sin TAVILY_API_KEY - no se pueden buscar cuotas');
+    return eventos;
+  }
+
+  for (const evento of eventos) {
+    // Solo buscar si no tiene cuotas reales aún
+    if (evento.cuota_local > 1.0 && evento.cuota_visitante > 1.0) continue;
+
+    const query = `cuotas apuestas ${evento.local} vs ${evento.visitante} ${evento.liga} ${evento.sport} oddschecker flashscore`;
+    
+    try {
+      const response = await axios.post('https://api.tavily.com/search', {
+        api_key: TAVILY_API_KEY,
+        query: query,
+        search_depth: 'advanced',
+        max_results: 5
+      }, { timeout: 10000 });
+
+      // Extraer cuotas de los resultados (parsing simple)
+      const cuotas = extraerCuotas(response.data?.results || [], evento);
+      if (cuotas) {
+        evento.cuota_local = cuotas.local;
+        evento.cuota_visitante = cuotas.visitante;
+        evento.cuota_empate = cuotas.empate || 3.5;
+      }
+    } catch(err) {
+      console.error(`Athos error para ${evento.local}:`, err.message);
+    }
+  }
+  return eventos;
+}
+
+function extraerCuotas(results, evento) {
+  // Buscar patrones de cuotas en los snippets (números con decimales)
+  const patron = /(\d+\.\d{2})/g;
+  let todas = [];
+  
+  for (const r of results) {
+    const matches = r.content?.match(patron) || [];
+    todas = todas.concat(matches.map(Number));
+  }
+  
+  if (todas.length >= 2) {
+    // Asumir que las dos primeras son local y visitante
+    return { local: todas[0], visitante: todas[1] };
+  }
+  return null;
+}
+// ==================== FIN ATHOS ====================
+
+
 async function enriquecerConCuotas(eventos) {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -322,6 +379,12 @@ async function precalentarCache() {
   }
 
   await enriquecerConCuotas(allEvents);
+  // Si las cuotas no se obtuvieron, usar Athos
+  const sinCuotas = allEvents.filter(e => !e.cuota_local || e.cuota_local <= 1.0);
+  if (sinCuotas.length > 0) {
+    console.log(`Athos buscando cuotas para ${sinCuotas.length} eventos...`);
+    await enriquecerConAthos(allEvents);
+  }
 
   const response = {
     status: 'online',
