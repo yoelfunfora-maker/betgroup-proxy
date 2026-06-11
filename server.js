@@ -236,8 +236,9 @@ async function enriquecerConGeminis(eventos) {
     return eventos;
   }
 
+  console.log(`Geminis02 procesando ${eventos.length} eventos...`);
   for (const evento of eventos) {
-    if (evento.cuota_local && evento.cuota_local > 1.0) continue; // ya tiene cuotas
+    // Forzar generación de cuotas siempre (debug)
 
     const prompt = `Eres un generador de cuotas de apuestas deportivas. Para el siguiente evento, busca información actualizada y genera cuotas REALISTAS. Responde EXCLUSIVAMENTE con un objeto JSON válido, sin markdown, sin comillas alrededor, sin texto adicional. Solo el JSON.
 
@@ -257,9 +258,18 @@ Formato de respuesta obligatorio:
       
       const texto = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (texto) {
-        const jsonMatch = texto.match(/{[\s\S]*}/);
+        // Intentar extraer JSON, incluso si está dentro de bloques markdown
+      let jsonMatch = texto.match(/```jsons*([\s\S]*?)```/);
+      if (jsonMatch) {
+        // Si hay bloque markdown, usar el contenido dentro
+        jsonMatch = jsonMatch[1].match(/{[\s\S]*}/);
+      } else {
+        // Si no, buscar directamente el JSON
+        jsonMatch = texto.match(/{[\s\S]*}/);
+      }
         if (jsonMatch) {
           const cuotas = JSON.parse(jsonMatch[0]);
+          console.log(`✅ Cuotas asignadas para ${evento.local}:`, cuotas);
           if (cuotas.cuota_local) evento.cuota_local = parseFloat(cuotas.cuota_local);
           if (cuotas.cuota_empate) evento.cuota_empate = parseFloat(cuotas.cuota_empate);
           if (cuotas.cuota_visitante) evento.cuota_visitante = parseFloat(cuotas.cuota_visitante);
