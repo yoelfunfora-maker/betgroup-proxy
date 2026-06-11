@@ -30,11 +30,11 @@ try {
   
   console.log('✅ Firebase Admin SDK inicializado');
 
-// Claves de agentes en base64 (codificadas para seguridad)
+// === Claves de agentes (base64) ===
 const GEMINI_B64 = 'QVEuQWI4Uk42SVNDbFk0WnNqSXRpZlNCaXZkeUppblBjMUdoNEljMUJGM2Nxc3RBVjRsa2c=';
-const GROQ_B64 = 'Z3NrX05rU01oNlBxdm9qdElnNTlrT1QyV0dkeWIzRlkwc3dDYVZHYzRGa055ZFV6OGZYcjl0SXc=';
+const GROQ_B64   = 'Z3NrX05rU01oNlBxdm9qdElnNTlrT1QyV0dkeWIzRlkwc3dDYVZHYzRGa055ZFV6OGZYcjl0SXc=';
 const GEMINI_API_KEY = Buffer.from(GEMINI_B64, 'base64').toString();
-const GROQ_API_KEY = Buffer.from(GROQ_B64, 'base64').toString();
+const GROQ_API_KEY   = Buffer.from(GROQ_B64, 'base64').toString();
 
 
   db = admin.database();
