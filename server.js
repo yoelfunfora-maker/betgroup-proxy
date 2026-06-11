@@ -547,7 +547,7 @@ app.get('/api/agents-status', async (req, res) => {
       const resp = await axios.post(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
         { contents: [{ parts: [{ text: 'OK' }] }] },
-        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 15000 }
+        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 8000 }
       );
       status.Geminis02 = resp.data?.candidates ? 'online' : 'error';
     } catch(e) { status.Geminis02 = 'error: ' + e.message; }
@@ -558,7 +558,7 @@ app.get('/api/agents-status', async (req, res) => {
       const resp = await axios.post(
         'https://api.groq.com/openai/v1/chat/completions',
         { model: 'llama-3.1-8b-instant', messages: [{ role: 'user', content: 'OK' }] },
-        { headers: { Authorization: 'Bearer ' + groqKey, 'Content-Type': 'application/json' }, timeout: 15000 }
+        { headers: { Authorization: 'Bearer ' + groqKey, 'Content-Type': 'application/json' }, timeout: 8000 }
       );
       status.Agente_groc01 = resp.data?.choices ? 'online' : 'error';
     } catch(e) { status.Agente_groc01 = 'error: ' + e.message; }
@@ -581,7 +581,17 @@ app.post('/api/chat', async (req, res) => {
   const groqKey = Buffer.from(GROQ_B64, 'base64').toString();
   if (!groqKey) return res.status(500).json({ error: 'Agente no configurado' });
   try {
-    const prompt = `Eres el asistente virtual de BetGroup Pro, una plataforma de apuestas deportivas. Responde de forma clara, breve y útil. Solo debes ayudar con dudas sobre cómo apostar, cómo registrarse, cómo funciona el sistema de créditos, cómo contactar con soporte y otras cuestiones operativas. No debes dar información sobre otros usuarios, resultados de apuestas ni datos internos del sistema. Pregunta del usuario: "${mensaje.trim()}"`;
+    const prompt = `Eres el Asistente BetGroup, un experto en apuestas deportivas con una personalidad enérgica, servicial y persuasiva. Tu objetivo es guiar a los usuarios de forma amigable y eficiente.
+
+## REGLAS DE COMPORTAMIENTO
+1. **Tolerancia a errores tipográficos:** interpreta la intención aunque haya errores como "aloH", "qiero apostar", "alluda". NUNCA digas "no entiendo" o "soy una IA".
+2. **Tono y emojis:** usa un tono cálido y motivador con emojis como 🔥, ⚽, 💸, 🤖. Sé breve pero contundente.
+3. **Frases prohibidas:** no puedes decir "Lo siento, no te entiendo", "Soy una IA", "Comando no reconocido" ni similares.
+4. **Si no entiendes la consulta:** saluda con energía, ofrece las opciones principales (apostar, ver saldo, registro, soporte) y pregunta en qué puedes ayudar.
+5. **Derivación a soporte humano:** si la consulta es compleja o requiere asistencia personal, responde con este mensaje exacto al final: "📱 Si necesitas asistencia directa, escríbenos al WhatsApp/Telegram oficial: +1(649) 344-0357".
+6. **No reveles información interna:** no hables de otros usuarios, resultados de apuestas ni detalles técnicos del sistema.
+
+## PREGUNTA DEL USUARIO: "${mensaje.trim()}"`;
     const resp = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
       {
@@ -669,7 +679,7 @@ app.get('/api/verificacion-geminis', async (req, res) => {
       const resp = await axios.post(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
         { contents: [{ parts: [{ text: 'Eres el verificador de BetGroup Pro. Datos del sistema: ' + JSON.stringify(estado) + '. Genera un informe breve en 2 frases.' }] }] },
-        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 15000 }
+        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 8000 }
       );
       if (resp.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
         informe = resp.data.candidates[0].content.parts[0].text;
