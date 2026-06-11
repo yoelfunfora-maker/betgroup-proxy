@@ -252,7 +252,7 @@ Formato de respuesta obligatorio:
       const resp = await axios.post(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
         { contents: [{ parts: [{ text: prompt }] }] },
-        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 10000 }
+        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 15000 }
       );
 
       const texto = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -322,7 +322,7 @@ async function enriquecerConAthos(eventos) {
         query: query,
         search_depth: 'advanced',
         max_results: 5
-      }, { timeout: 10000 });
+      }, { timeout: 15000 });
 
       // Extraer cuotas de los resultados (parsing simple)
       const cuotas = extraerCuotas(response.data?.results || [], evento);
