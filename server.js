@@ -227,6 +227,65 @@ const oddsCache = {};
 // ==================== RASTREADOR ATHOS (TAVILY) ====================
 const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
 
+
+// ==================== GENERADOR DE CUOTAS GEMINIS02 ====================
+async function enriquecerConGeminis(eventos) {
+  const geminiKey = process.env.GEMINI_API_KEY || 'AQ.Ab8RN6ISClY4ZsjItifSBivdyJinPc1Gh4Ic1BF3cqstAV4lkg';
+  if (!geminiKey) {
+    console.warn('⚠️ Sin GEMINI_API_KEY para generar cuotas');
+    return eventos;
+  }
+
+  for (const evento of eventos) {
+    if (evento.cuota_local && evento.cuota_local > 1.0) continue;
+
+    const prompt = `Eres un generador de cuotas de apuestas deportivas. Para el siguiente evento, genera cuotas REALISTAS en formato JSON. Responde ÚNICAMENTE con el JSON, sin markdown, sin texto adicional. Solo el JSON.
+Evento: ${evento.local} vs ${evento.visitante}
+Deporte: ${evento.sport || 'desconocido'}
+Liga: ${evento.liga || 'desconocida'}
+
+Formato de respuesta obligatorio:
+{"cuota_local": X.XX, "cuota_empate": X.XX, "cuota_visitante": X.XX}`;
+
+    try {
+      const resp = await axios.post(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
+        { contents: [{ parts: [{ text: prompt }] }] },
+        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 15000 }
+      );
+
+      const texto = resp.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!texto) continue;
+
+      let cuotas;
+      try {
+        cuotas = JSON.parse(texto);
+      } catch (e1) {
+        const limpio = texto.replace(/```jsons*|```/g, '').trim();
+        try {
+          cuotas = JSON.parse(limpio);
+        } catch (e2) {
+          const match = limpio.match(/{[sS]*?}/);
+          if (match) {
+            try { cuotas = JSON.parse(match[0]); } catch (e3) { continue; }
+          } else { continue; }
+        }
+      }
+
+      if (cuotas && typeof cuotas === 'object') {
+        if (cuotas.cuota_local) evento.cuota_local = parseFloat(cuotas.cuota_local);
+        if (cuotas.cuota_empate) evento.cuota_empate = parseFloat(cuotas.cuota_empate);
+        if (cuotas.cuota_visitante) evento.cuota_visitante = parseFloat(cuotas.cuota_visitante);
+        console.log(`✅ Gemini cuota para ${evento.local}: L=${evento.cuota_local} E=${evento.cuota_empate} V=${evento.cuota_visitante}`);
+      }
+    } catch(e) {
+      console.error(`Geminis02 error para ${evento.local}: ${e.message}`);
+    }
+  }
+  return eventos;
+}
+// ==================== FIN GENERADOR GEMINIS02 ====================
+
 async function enriquecerConAthos(eventos) {
   if (!TAVILY_API_KEY) {
     console.warn('⚠️ Sin TAVILY_API_KEY - no se pueden buscar cuotas');
@@ -382,11 +441,16 @@ async function precalentarCache() {
   }
 
   await enriquecerConCuotas(allEvents);
-  // Si las cuotas no se obtuvieron, usar Athos
-  const sinCuotas = allEvents.filter(e => !e.cuota_local || e.cuota_local <= 1.0);
+  let sinCuotas = allEvents.filter(e => !e.cuota_local || e.cuota_local <= 1.0);
   if (sinCuotas.length > 0) {
     console.log(`Athos buscando cuotas para ${sinCuotas.length} eventos...`);
     await enriquecerConAthos(allEvents);
+  }
+  // Si aún faltan cuotas, usar Geminis02 como respaldo final
+  sinCuotas = allEvents.filter(e => !e.cuota_local || e.cuota_local <= 1.0);
+  if (sinCuotas.length > 0) {
+    console.log(`Geminis02 generando cuotas para ${sinCuotas.length} eventos...`);
+    await enriquecerConGeminis(allEvents);
   }
 
   const response = {
