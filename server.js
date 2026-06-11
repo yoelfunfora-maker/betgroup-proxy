@@ -528,84 +528,6 @@ app.get('/api/saldo/:uid', async (req, res) => {
 
 
 
-
-// ==================== ENDPOINT DE SINCRONIZACIÓN DE SALDO ====================
-
-app.post('/api/saldo-sync/:uid', async (req, res) => {
-  const { uid } = req.params;
-  const { expectedSaldo } = req.body;
-
-  if (!uid || uid.length < 10) {
-    return res.status(400).json({ error: 'UID inválido' });
-  }
-
-  try {
-    if (!db) {
-      return res.status(500).json({ error: 'Firebase no configurado' });
-    }
-
-    // Leer saldo actual desde Firebase
-    const snap = await db.ref(`users/${uid}/creditoReal`).once('value');
-    const saldoActual = snap.val() || 0;
-
-    // Si el cliente espera algo diferente, notificar desincronización
-    if (expectedSaldo !== undefined && expectedSaldo !== saldoActual) {
-      console.log(`⚠️ [SALDO] Desincronización detectada - UID: ${uid} | Esperado: ${expectedSaldo} | Real: ${saldoActual}`);
-      notifyTelegram(`⚠️ <b>Desincronización de Saldo</b>\nUID: ${uid}\n📊 Esperado: ${expectedSaldo} CR\n💰 Real: ${saldoActual} CR`);
-    }
-
-    res.json({
-      uid,
-      creditoReal: saldoActual,
-      sincronizado: true,
-      desincronizacion: expectedSaldo !== undefined ? (expectedSaldo !== saldoActual) : false,
-      timestamp: new Date().toISOString()
-    });
-  } catch (err) {
-    console.error('Error /api/saldo-sync:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ==================== ENDPOINT DE LECTURA DE USUARIO COMPLETO ====================
-
-app.get('/api/usuario/:uid', async (req, res) => {
-  const { uid } = req.params;
-
-  if (!uid || uid.length < 10) {
-    return res.status(400).json({ error: 'UID inválido' });
-  }
-
-  try {
-    if (!db) {
-      return res.status(500).json({ error: 'Firebase no configurado' });
-    }
-
-    // Leer datos del usuario
-    const snap = await db.ref(`users/${uid}`).once('value');
-    const userData = snap.val();
-
-    if (!userData) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
-    // Retornar solo campos públicos y relevantes
-    res.json({
-      uid,
-      telefono: userData.telefono || null,
-      creditoReal: userData.creditoReal !== undefined ? userData.creditoReal : 0,
-      creditoPromo: userData.creditoPromo !== undefined ? userData.creditoPromo : 0,
-      rol: userData.rol || 'miembro',
-      estado: userData.estado || 'activo',
-      lastUpdated: userData.lastUpdated || null,
-      timestamp: new Date().toISOString()
-    });
-  } catch (err) {
-    console.error('Error /api/usuario:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ==================== ENDPOINT DE ESTADO DE AGENTES ====================
 
 
@@ -614,40 +536,36 @@ app.get('/api/usuario/:uid', async (req, res) => {
 
 
 app.get('/api/agents-status', async (req, res) => {
-  const status = { 
-    Geminis02: 'unknown', 
-    Agente_groc01: 'unknown', 
-    Athos_Tavily: 'unknown' 
-  };
-  
-  // Claves directas proporcionadas por el Comandante
-  const geminiKey = process.env.GEMINI_API_KEY || '';
-  const groqKey = process.env.GROQ_API_KEY || '';
-  
-  // Probar Geminis02
-  try {
-    const resp = await axios.post(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + geminiKey,
-      { contents: [{ parts: [{ text: 'OK' }] }] },
-      { timeout: 8000 }
-    );
-    status.Geminis02 = resp.data?.candidates ? 'online' : 'error';
-  } catch(e) { status.Geminis02 = 'error: ' + e.message; }
+  const GEMINI_B64 = 'QVEuQWI4Uk42SVNDbFk0WnNqSXRpZlNCaXZkeUppblBjMUdoNEljMUJGM2Nxc3RBVjRsa2c=';
+  const GROQ_B64 = 'Z3NrX05rU01oNlBxdm9qdElnNTlrT1QyV0dkeWIzRlkwc3dDYVZHYzRGa055ZFV6OGZYcjl0SXc=';
+  const geminiKey = Buffer.from(GEMINI_B64, 'base64').toString();
+  const groqKey   = Buffer.from(GROQ_B64, 'base64').toString();
+  const status = { Geminis02: 'unknown', Agente_groc01: 'unknown', Athos_Tavily: 'unknown' };
 
-  // Probar Agente_groc01
-  try {
-    const resp = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
-      { model: 'mixtral-8x7b-32768', messages: [{ role: 'user', content: 'OK' }] },
-      { headers: { Authorization: 'Bearer ' + groqKey }, timeout: 8000 }
-    );
-    status.Agente_groc01 = resp.data?.choices ? 'online' : 'error';
-  } catch(e) { status.Agente_groc01 = 'error: ' + e.message; }
+  if (geminiKey) {
+    try {
+      const resp = await axios.post(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
+        { contents: [{ parts: [{ text: 'OK' }] }] },
+        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 8000 }
+      );
+      status.Geminis02 = resp.data?.candidates ? 'online' : 'error';
+    } catch(e) { status.Geminis02 = 'error: ' + e.message; }
+  } else { status.Geminis02 = 'no_key'; }
 
-  // Verificar Athos (Tavily)
+  if (groqKey) {
+    try {
+      const resp = await axios.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        { model: 'llama-3.1-8b-instant', messages: [{ role: 'user', content: 'OK' }] },
+        { headers: { Authorization: 'Bearer ' + groqKey, 'Content-Type': 'application/json' }, timeout: 8000 }
+      );
+      status.Agente_groc01 = resp.data?.choices ? 'online' : 'error';
+    } catch(e) { status.Agente_groc01 = 'error: ' + e.message; }
+  } else { status.Agente_groc01 = 'no_key'; }
+
   const tavilyKey = process.env.TAVILY_API_KEY;
   status.Athos_Tavily = tavilyKey ? 'configured' : 'no_key';
-
   res.json({ success: true, agents: status, timestamp: new Date().toISOString() });
 });
 
@@ -659,38 +577,23 @@ app.post('/api/chat', async (req, res) => {
   if (!mensaje || typeof mensaje !== 'string' || mensaje.trim().length === 0) {
     return res.status(400).json({ error: 'Mensaje vacío o inválido' });
   }
-
-  const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey) {
-    return res.status(500).json({ error: 'Agente no configurado' });
-  }
-
+  const GROQ_B64 = 'Z3NrX05rU01oNlBxdm9qdElnNTlrT1QyV0dkeWIzRlkwc3dDYVZHYzRGa055ZFV6OGZYcjl0SXc=';
+  const groqKey = Buffer.from(GROQ_B64, 'base64').toString();
+  if (!groqKey) return res.status(500).json({ error: 'Agente no configurado' });
   try {
     const prompt = `Eres el asistente virtual de BetGroup Pro, una plataforma de apuestas deportivas. Responde de forma clara, breve y útil. Solo debes ayudar con dudas sobre cómo apostar, cómo registrarse, cómo funciona el sistema de créditos, cómo contactar con soporte y otras cuestiones operativas. No debes dar información sobre otros usuarios, resultados de apuestas ni datos internos del sistema. Pregunta del usuario: "${mensaje.trim()}"`;
-
     const resp = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
       {
         model: 'llama-3.1-8b-instant',
-        messages: [
-          { role: 'system', content: prompt },
-          { role: 'user', content: mensaje.trim() }
-        ],
-        max_tokens: 300,
-        temperature: 0.7
+        messages: [{ role: 'system', content: prompt }, { role: 'user', content: mensaje.trim() }],
+        max_tokens: 300, temperature: 0.7
       },
-      {
-        headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
-        timeout: 15000
-      }
+      { headers: { Authorization: 'Bearer ' + groqKey, 'Content-Type': 'application/json' }, timeout: 15000 }
     );
-
     const respuesta = resp.data?.choices?.[0]?.message?.content || 'Lo siento, no puedo responder en este momento.';
     res.json({ success: true, respuesta });
-  } catch (e) {
-    console.error('Error en /api/chat:', e.message);
-    res.status(500).json({ error: 'Error al procesar la consulta' });
-  }
+  } catch(e) { console.error('Error /api/chat:', e.message); res.status(500).json({ error: 'Error al procesar la consulta' }); }
 });
 
 
@@ -744,7 +647,6 @@ app.get('/api/verificacion-geminis', async (req, res) => {
   try {
     const estado = { proxy: 'ok', agentes: {}, eventos: 0, chatbot: false, saldo_firebase: null, saldo_endpoint: null };
     
-    // Recopilar datos con timeouts más cortos y sin dependencias en cascada
     const [agentsResp, fixturesResp, chatResp, saldoFB, saldoEP] = await Promise.allSettled([
       axios.get('https://betgroup-proxy-v2.onrender.com/api/agents-status', { timeout: 3000 }),
       axios.get('https://betgroup-proxy-v2.onrender.com/api/fixtures', { timeout: 3000 }),
@@ -759,22 +661,20 @@ app.get('/api/verificacion-geminis', async (req, res) => {
     if (saldoFB.status === 'fulfilled') estado.saldo_firebase = saldoFB.value.val();
     if (saldoEP.status === 'fulfilled') estado.saldo_endpoint = saldoEP.value.data?.creditoReal;
 
-    // Enviar informe a Telegram directamente (sin esperar a Gemini si no responde rápido)
-    const geminiKey = process.env.GEMINI_API_KEY;
+    // Formato exacto del curl funcional
+    const geminiKey = 'AQ.Ab8RN6ISClY4ZsjItifSBivdyJinPc1Gh4Ic1BF3cqstAV4lkg';
     let informe = 'Sistema operativo. Saldo Firebase: ' + estado.saldo_firebase + ' | Saldo endpoint: ' + estado.saldo_endpoint;
     
-    if (geminiKey) {
-      try {
-        const resp = await axios.post(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
-          { contents: [{ parts: [{ text: 'Eres el verificador de BetGroup Pro. Datos del sistema: ' + JSON.stringify(estado) + '. Genera un informe breve en 2 frases.' }] }] },
-          { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 6000 }
-        );
-        if (resp.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-          informe = resp.data.candidates[0].content.parts[0].text;
-        }
-      } catch(e) { console.log('Gemini no disponible para el informe, usando resumen básico'); }
-    }
+    try {
+      const resp = await axios.post(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
+        { contents: [{ parts: [{ text: 'Eres el verificador de BetGroup Pro. Datos del sistema: ' + JSON.stringify(estado) + '. Genera un informe breve en 2 frases.' }] }] },
+        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 8000 }
+      );
+      if (resp.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+        informe = resp.data.candidates[0].content.parts[0].text;
+      }
+    } catch(e) { console.log('Gemini no disponible para el informe, usando resumen básico'); }
 
     await axios.post('https://api.telegram.org/bot8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs/sendMessage', {
       chat_id: '-5154764705',
