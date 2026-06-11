@@ -30,6 +30,11 @@ try {
   
   console.log('✅ Firebase Admin SDK inicializado');
   db = admin.database();
+
+// Limpiar caché de cuotas al iniciar para forzar nuevas consultas
+for (const key of Object.keys(oddsCache)) { delete oddsCache[key]; }
+console.log('🧹 Caché de cuotas limpiada al iniciar');
+
 } catch(error) {
   console.error('Error al inicializar Firebase Admin SDK:', error.message);
   process.exit(1);
@@ -56,12 +61,8 @@ const ODDS_API_KEY_1 = process.env.ODDS_API_KEY_1 || '';
 const ODDS_API_KEY_2 = process.env.ODDS_API_KEY_2 || '';
 
 function getApiKey() {
-  const hour = new Date().getHours();
-  if (hour === 0)  return 'e18abd8956512f34027f0ac3f87fbe52'; // medianoche
-  if (hour === 8)  return 'e18abd8956512f34027f0ac3f87fbe52'; // 8:00 AM (nueva)
-  if (hour === 14) return '0e31c3149f0afbb009491a0cd80169f4'; // 2:00 PM (nueva)
-  if (hour === 18) return '0e31c3149f0afbb009491a0cd80169f4'; // 6:00 PM
-  return '';
+  // 🔥 CLAVE DE PRUEBA ACTIVA 24h (luego se restaurará)
+  return '0e31c3149f0afbb009491a0cd80169f4';
 }
 
 // ==================== ESPN FETCH ====================
