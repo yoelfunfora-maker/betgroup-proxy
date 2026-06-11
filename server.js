@@ -225,7 +225,7 @@ const oddsCache = {};
 
 
 // ==================== RASTREADOR ATHOS (TAVILY) ====================
-const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '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';
 
 async function enriquecerConAthos(eventos) {
   if (!TAVILY_API_KEY) {
@@ -381,13 +381,10 @@ async function precalentarCache() {
     }
   }
 
+  console.log('🔎 Athos buscará cuotas para todos los eventos...');
+  await enriquecerConAthos(allEvents);
+  // Usar también la API principal como respaldo si Athos no encuentra algo
   await enriquecerConCuotas(allEvents);
-  // Si las cuotas no se obtuvieron, usar Athos
-  const sinCuotas = allEvents.filter(e => !e.cuota_local || e.cuota_local <= 1.0);
-  if (sinCuotas.length > 0) {
-    console.log(`Athos buscando cuotas para ${sinCuotas.length} eventos...`);
-    await enriquecerConAthos(allEvents);
-  }
 
   const response = {
     status: 'online',
@@ -692,7 +689,3 @@ app.listen(PORT, () => {
   precalentarCache();
   setInterval(precalentarCache, 3 * 60 * 1000);
 });
-
-// ==================== FORCE REDEPLOY ====================
-// Timestamp: Thu Jun 11 00:51:31 UTC 2026
-
