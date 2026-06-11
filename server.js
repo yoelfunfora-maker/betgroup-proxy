@@ -56,8 +56,12 @@ const ODDS_API_KEY_1 = process.env.ODDS_API_KEY_1 || '';
 const ODDS_API_KEY_2 = process.env.ODDS_API_KEY_2 || '';
 
 function getApiKey() {
-  // Clave de prueba activa para obtener cuotas ahora
-  return '0e31c3149f0afbb009491a0cd80169f4';
+  const hour = new Date().getHours();
+  if (hour === 0)  return 'e18abd8956512f34027f0ac3f87fbe52'; // medianoche
+  if (hour === 8)  return 'e18abd8956512f34027f0ac3f87fbe52'; // 8:00 AM (nueva)
+  if (hour === 14) return '0e31c3149f0afbb009491a0cd80169f4'; // 2:00 PM (nueva)
+  if (hour === 18) return '0e31c3149f0afbb009491a0cd80169f4'; // 6:00 PM
+  return '';
 }
 
 // ==================== ESPN FETCH ====================
