@@ -224,7 +224,60 @@ function limpiarNombre(nombre) {
 const oddsCache = {};
 
 
+// ==================== RASTREADOR ATHOS (TAVILY) ====================
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY || '';
 
+async function enriquecerConAthos(eventos) {
+  if (!TAVILY_API_KEY) {
+    console.warn('⚠️ Sin TAVILY_API_KEY - no se pueden buscar cuotas');
+    return eventos;
+  }
+
+  for (const evento of eventos) {
+    // Solo buscar si no tiene cuotas reales aún
+    if (evento.cuota_local > 1.0 && evento.cuota_visitante > 1.0) continue;
+
+    const query = `cuotas apuestas ${evento.local} vs ${evento.visitante} ${evento.liga} ${evento.sport} oddschecker flashscore`;
+    
+    try {
+      const response = await axios.post('https://api.tavily.com/search', {
+        api_key: TAVILY_API_KEY,
+        query: query,
+        search_depth: 'advanced',
+        max_results: 5
+      }, { timeout: 10000 });
+
+      // Extraer cuotas de los resultados (parsing simple)
+      const cuotas = extraerCuotas(response.data?.results || [], evento);
+      if (cuotas) {
+        evento.cuota_local = cuotas.local;
+        evento.cuota_visitante = cuotas.visitante;
+        evento.cuota_empate = cuotas.empate || 3.5;
+      }
+    } catch(err) {
+      console.error(`Athos error para ${evento.local}:`, err.message);
+    }
+  }
+  return eventos;
+}
+
+function extraerCuotas(results, evento) {
+  // Buscar patrones de cuotas en los snippets (números con decimales)
+  const patron = /(\d+\.\d{2})/g;
+  let todas = [];
+  
+  for (const r of results) {
+    const matches = r.content?.match(patron) || [];
+    todas = todas.concat(matches.map(Number));
+  }
+  
+  if (todas.length >= 2) {
+    // Asumir que las dos primeras son local y visitante
+    return { local: todas[0], visitante: todas[1] };
+  }
+  return null;
+}
+// ==================== FIN ATHOS ====================
 
 
 async function enriquecerConCuotas(eventos) {
@@ -304,43 +357,6 @@ async function enriquecerConCuotas(eventos) {
 
 // ==================== PRECALENTAR CACHÉ ====================
 
-
-// ==================== INFORME DE CUOTAS A TELEGRAM ====================
-async function enviarInformeCuotas() {
-  try {
-    const fixtures = await axios.get('https://betgroup-proxy-v2.onrender.com/api/fixtures', { timeout: 5000 });
-    const eventos = fixtures.data?.data || [];
-    if (!eventos.length) return;
-
-    // Formatear lista de eventos con cuotas
-    let mensaje = '📊 <b>INFORME DE CUOTAS</b>\n\n';
-    const conCuotas = eventos.filter(e => e.cuota_local > 1.0);
-    const sinCuotas = eventos.filter(e => !e.cuota_local || e.cuota_local <= 1.0);
-
-    for (const e of conCuotas) {
-      mensaje += `⚽ ${e.local} vs ${e.visitante}\n`;
-      mensaje += `   Local: ${e.cuota_local} | Empate: ${e.cuota_empate || 'N/A'} | Visitante: ${e.cuota_visitante}\n\n`;
-    }
-
-    if (sinCuotas.length > 0) {
-      mensaje += `⚠️ ${sinCuotas.length} eventos sin cuotas aún.\n`;
-    }
-
-    mensaje += `\n🕐 Actualizado: ${new Date().toLocaleString()}`;
-
-    await axios.post('https://api.telegram.org/bot8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs/sendMessage', {
-      chat_id: '-5154764705',
-      text: mensaje,
-      parse_mode: 'HTML'
-    }, { timeout: 5000 });
-
-    console.log('✅ Informe de cuotas enviado a Telegram');
-  } catch(e) {
-    console.error('Error enviando informe de cuotas:', e.message);
-  }
-}
-// ==================== FIN INFORME CUOTAS ====================
-
 async function precalentarCache() {
   console.log('⏳ Precalentando caché...');
 
@@ -365,21 +381,12 @@ async function precalentarCache() {
     }
   }
 
-  console.log('🔎 Geminis02 buscará cuotas para todos los eventos...');
-  await enriquecerConGeminis(allEvents);
-  // The Odds API como respaldo si Gemini no cubrió todos los eventos
-  const sinCuotas = allEvents.filter(e => !e.cuota_local || e.cuota_local <= 1.0).length;
-  if (sinCuotas > 0) {
-    console.log(`⚠️ Faltan cuotas para ${sinCuotas} eventos. Usando The Odds API...`);
-    await enriquecerConCuotas(allEvents);
-  }
-
-  // Enviar informe SOLO si hay al menos un evento con cuotas
-  const conCuotas = allEvents.filter(e => e.cuota_local && e.cuota_local > 1.0).length;
-  if (conCuotas > 0) {
-    // enviarInformeCuotas se llama condicionalmente arriba
-  } else {
-    console.log('⚠️ No se generaron cuotas. No se envía informe.');
+  await enriquecerConCuotas(allEvents);
+  // Si las cuotas no se obtuvieron, usar Athos
+  const sinCuotas = allEvents.filter(e => !e.cuota_local || e.cuota_local <= 1.0);
+  if (sinCuotas.length > 0) {
+    console.log(`Athos buscando cuotas para ${sinCuotas.length} eventos...`);
+    await enriquecerConAthos(allEvents);
   }
 
   const response = {
@@ -393,7 +400,6 @@ async function precalentarCache() {
 
   setCache('fixtures', response);
   console.log(`✅ Caché precalentado: ${allEvents.length} eventos`);
-  enviarInformeCuotas();
 }
 
 // ==================== ENDPOINTS ====================
@@ -583,7 +589,7 @@ app.post('/api/chat', async (req, res) => {
         messages: [{ role: 'system', content: prompt }, { role: 'user', content: mensaje.trim() }],
         max_tokens: 300, temperature: 0.7
       },
-      { headers: { Authorization: 'Bearer ' + groqKey, 'Content-Type': 'application/json' }, timeout: 20000 }
+      { headers: { Authorization: 'Bearer ' + groqKey, 'Content-Type': 'application/json' }, timeout: 15000 }
     );
     const respuesta = resp.data?.choices?.[0]?.message?.content || 'Lo siento, no puedo responder en este momento.';
     res.json({ success: true, respuesta });
