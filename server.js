@@ -82,8 +82,13 @@ const ODDS_API_KEY_2 = process.env.ODDS_API_KEY_2 || 'e18abd8956512f34027f0ac3f8
 
 function getApiKey() {
   const hour = new Date().getHours();
-  if (hour === 0) return 'e18abd8956512f34027f0ac3f87fbe52';
-  if (hour === 18) return '0e31c3149f0afbb009491a0cd80169f4';
+  // Claves antiguas (intactas, aunque no funcionen)
+  if (hour === 8)  return ODDS_API_KEY_1;  // 8:00 AM
+  if (hour === 14) return ODDS_API_KEY_2;  // 2:00 PM
+  // Nuevas claves
+  if (hour === 0)  return 'e18abd8956512f34027f0ac3f87fbe52'; // Medianoche
+  if (hour === 18) return '0e31c3149f0afbb009491a0cd80169f4'; // 6:00 PM
+  // No gastar créditos el resto del día
   return '';
 }
 
