@@ -692,3 +692,7 @@ app.listen(PORT, () => {
   precalentarCache();
   setInterval(precalentarCache, 3 * 60 * 1000);
 });
+
+// ==================== FORCE REDEPLOY ====================
+// Timestamp: Thu Jun 11 00:51:31 UTC 2026
+
