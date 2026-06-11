@@ -239,7 +239,7 @@ async function enriquecerConGeminis(eventos) {
   for (const evento of eventos) {
     if (evento.cuota_local && evento.cuota_local > 1.0) continue; // ya tiene cuotas
 
-    const prompt = `Eres un generador de cuotas de apuestas deportivas. Para el siguiente evento, genera cuotas REALISTAS en formato JSON. Aplica un margen de la casa del 20% (overround 120%). Responde ÚNICAMENTE con el JSON, sin texto adicional.
+    const prompt = `Eres un generador de cuotas de apuestas deportivas. Para el siguiente evento, busca información actualizada y genera cuotas REALISTAS en formato JSON. Responde ÚNICAMENTE con el JSON, sin texto adicional.
 
 Evento: ${evento.local} vs ${evento.visitante}
 Deporte: ${evento.sport || 'desconocido'}
@@ -429,12 +429,13 @@ async function precalentarCache() {
 
   console.log('🔎 Athos buscará cuotas para todos los eventos...');
   console.log('🔎 Athos buscará cuotas...');
-  await enriquecerConAthos(allEvents);
-  // Verificar cuántas quedaron sin cuota
-  const sinCuotasAthos = allEvents.filter(e => !e.cuota_local || e.cuota_local <= 1.0).length;
-  if (sinCuotasAthos > 0) {
-    console.log(`⚠️ Athos no encontró cuotas para ${sinCuotasAthos} eventos. Activando Geminis02...`);
-    await enriquecerConGeminis(allEvents);
+  console.log('🔎 Geminis02 buscará cuotas para todos los eventos...');
+  await enriquecerConGeminis(allEvents);
+  // Athos como respaldo
+  const sinCuotas = allEvents.filter(e => !e.cuota_local || e.cuota_local <= 1.0).length;
+  if (sinCuotas > 0) {
+    console.log(`⚠️ Geminis02 no encontró cuotas para ${sinCuotas} eventos. Usando Athos...`);
+    await enriquecerConAthos(allEvents);
   }
   // API principal como respaldo final
   await enriquecerConCuotas(allEvents);
