@@ -283,13 +283,92 @@ IMPORTANTE:
 
 // ==================== PRECALENTAR CACHÉ ====================
 
+async function enriquecerConCuotas(eventos) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    console.warn('⚠️ Sin The Odds API Key - usando cuotas por defecto');
+    return eventos;
+  }
+
+  const sportKeyMap = {
+    'soccer': 'soccer_epl',
+    'basketball': 'basketball_nba',
+    'baseball': 'baseball_mlb',
+    'mma': 'mma_mixed_martial_arts'
+  };
+
+  // Agrupar eventos por sportKey
+  const grupos = {};
+  for (const evento of eventos) {
+    const sportKey = sportKeyMap[evento.sport];
+    if (!sportKey) continue;
+    if (!grupos[sportKey]) grupos[sportKey] = [];
+    grupos[sportKey].push(evento);
+  }
+
+  // Procesar cada grupo
+  for (const [sportKey, eventosGrupo] of Object.entries(grupos)) {
+    const cacheEntry = oddsCache[sportKey];
+    let juegos = null;
+
+    // Usar caché si es válido (menos de 12h)
+    if (cacheEntry && (Date.now() - cacheEntry.timestamp) < 12 * 60 * 60 * 1000) {
+      juegos = cacheEntry.data;
+    } else {
+      try {
+        const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=${apiKey}&markets=h2h&regions=us`;
+        const response = await axios.get(url, { timeout: 5000 });
+        if (response.data) {
+          juegos = response.data.data || response.data; // la API a veces devuelve {data: [...]}
+          oddsCache[sportKey] = { data: juegos, timestamp: Date.now() };
+        }
+      } catch(err) {
+        console.error(`Error cuotas para ${sportKey}:`, err.message);
+        continue; // seguir con el siguiente deporte
+      }
+    }
+
+    if (!juegos) continue;
+
+    // Ahora cruzar cada evento del grupo con los juegos obtenidos
+    for (const evento of eventosGrupo) {
+      for (const game of juegos) {
+        const localLimpio = limpiarNombre(evento.local);
+        const visitanteLimpio = limpiarNombre(evento.visitante);
+        const homeLimpio = limpiarNombre(game.home_team || '');
+        const awayLimpio = limpiarNombre(game.away_team || '');
+
+        if (
+          (homeLimpio.includes(localLimpio) || localLimpio.includes(homeLimpio)) &&
+          (awayLimpio.includes(visitanteLimpio) || visitanteLimpio.includes(awayLimpio))
+        ) {
+          const bookmakers = game.bookmakers?.[0];
+          if (bookmakers?.markets?.[0]?.outcomes) {
+            const outcomes = bookmakers.markets[0].outcomes;
+            evento.cuota_local = outcomes.find(o => o.name === 'Home')?.price || evento.cuota_local;
+            evento.cuota_visitante = outcomes.find(o => o.name === 'Away')?.price || evento.cuota_visitante;
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  return eventos;
+}
+
+
+
+
 async function precalentarCache() {
   console.log('⏳ Precalentando caché...');
 
-  const deportes = [
+const deportes = [
     { path: 'basketball/nba/scoreboard', sport: 'basketball' },
     { path: 'baseball/mlb/scoreboard', sport: 'baseball' },
+    { path: 'soccer/fifa.friendly/scoreboard', sport: 'soccer' },
     { path: 'soccer/fifa.world/scoreboard', sport: 'soccer' },
+    { path: 'tennis/wta/scoreboard', sport: 'tennis' },
     { path: 'mma/ufc/scoreboard', sport: 'mma' }
   ];
 
@@ -305,8 +384,8 @@ async function precalentarCache() {
     }
   }
 
-  // Obtener cuotas con Gemini
-  await obtenerCuotasConGemini(allEvents);
+  // Intentar obtener cuotas (no bloquea si falla)
+  try { await enriquecerConCuotas(allEvents); } catch(e) { console.warn('⚠️ Error al enriquecer cuotas:', e.message); }
 
   const response = {
     status: 'online',
