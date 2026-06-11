@@ -210,7 +210,7 @@ function parseEvents(espnData, sport) {
 // ==================== ENRIQUECER CON CUOTAS (GEMINI) ====================
 
 async function obtenerCuotasConGemini(eventos) {
-  const geminiKey = process.env.GEMINI_API_KEY;
+  // Usando constante global GEMINI_API_KEY
   
   if (!geminiKey) {
     console.warn('⚠️ Sin GEMINI_API_KEY - no se pueden obtener cuotas');
@@ -723,14 +723,14 @@ app.get('/api/agents-status', async (req, res) => {
   };
   
   const geminiKey = process.env.GEMINI_API_KEY;
-  const groqKey = process.env.GROQ_API_KEY;
+  // Usando constante global GROQ_API_KEY
   
   // Probar Geminis02
   try {
     const resp = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiKey}`,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
       { contents: [{ parts: [{ text: 'OK' }] }] },
-      { timeout: 5000 }
+      { headers: { 'X-goog-api-key': GEMINI_API_KEY, 'Content-Type': 'application/json' }, timeout: 8000 }
     );
     status.Geminis02 = resp.data?.candidates ? 'online' : 'error';
   } catch(e) { 
@@ -743,7 +743,7 @@ app.get('/api/agents-status', async (req, res) => {
       'https://api.groq.com/openai/v1/chat/completions',
       { model: 'llama-3.1-8b-instant', messages: [{ role: 'user', content: 'OK' }] },
       { 
-        headers: { Authorization: `Bearer ${groqKey}` }, 
+        headers: { Authorization: 'Bearer ' + GROQ_API_KEY, 'Content-Type': 'application/json' }, 
         timeout: 5000 
       }
     );
