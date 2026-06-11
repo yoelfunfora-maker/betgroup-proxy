@@ -403,6 +403,43 @@ async function enriquecerConCuotas(eventos) {
 
 // ==================== PRECALENTAR CACHÉ ====================
 
+
+// ==================== INFORME DE CUOTAS A TELEGRAM ====================
+async function enviarInformeCuotas() {
+  try {
+    const fixtures = await axios.get('https://betgroup-proxy-v2.onrender.com/api/fixtures', { timeout: 5000 });
+    const eventos = fixtures.data?.data || [];
+    if (!eventos.length) return;
+
+    // Formatear lista de eventos con cuotas
+    let mensaje = '📊 <b>INFORME DE CUOTAS</b>\n\n';
+    const conCuotas = eventos.filter(e => e.cuota_local > 1.0);
+    const sinCuotas = eventos.filter(e => !e.cuota_local || e.cuota_local <= 1.0);
+
+    for (const e of conCuotas) {
+      mensaje += `⚽ ${e.local} vs ${e.visitante}\n`;
+      mensaje += `   Local: ${e.cuota_local} | Empate: ${e.cuota_empate || 'N/A'} | Visitante: ${e.cuota_visitante}\n\n`;
+    }
+
+    if (sinCuotas.length > 0) {
+      mensaje += `⚠️ ${sinCuotas.length} eventos sin cuotas aún.\n`;
+    }
+
+    mensaje += `\n🕐 Actualizado: ${new Date().toLocaleString()}`;
+
+    await axios.post('https://api.telegram.org/bot8671464180:AAHhu_Ct9-3Q6Arjle-7Xy4DyUGuuNvraBs/sendMessage', {
+      chat_id: '-5154764705',
+      text: mensaje,
+      parse_mode: 'HTML'
+    }, { timeout: 5000 });
+
+    console.log('✅ Informe de cuotas enviado a Telegram');
+  } catch(e) {
+    console.error('Error enviando informe de cuotas:', e.message);
+  }
+}
+// ==================== FIN INFORME CUOTAS ====================
+
 async function precalentarCache() {
   console.log('⏳ Precalentando caché...');
 
@@ -451,6 +488,7 @@ async function precalentarCache() {
 
   setCache('fixtures', response);
   console.log(`✅ Caché precalentado: ${allEvents.length} eventos`);
+  enviarInformeCuotas();
 }
 
 // ==================== ENDPOINTS ====================
