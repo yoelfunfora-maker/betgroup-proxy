@@ -528,6 +528,84 @@ app.get('/api/saldo/:uid', async (req, res) => {
 
 
 
+
+// ==================== ENDPOINT DE SINCRONIZACIÓN DE SALDO ====================
+
+app.post('/api/saldo-sync/:uid', async (req, res) => {
+  const { uid } = req.params;
+  const { expectedSaldo } = req.body;
+
+  if (!uid || uid.length < 10) {
+    return res.status(400).json({ error: 'UID inválido' });
+  }
+
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Firebase no configurado' });
+    }
+
+    // Leer saldo actual desde Firebase
+    const snap = await db.ref(`users/${uid}/creditoReal`).once('value');
+    const saldoActual = snap.val() || 0;
+
+    // Si el cliente espera algo diferente, notificar desincronización
+    if (expectedSaldo !== undefined && expectedSaldo !== saldoActual) {
+      console.log(`⚠️ [SALDO] Desincronización detectada - UID: ${uid} | Esperado: ${expectedSaldo} | Real: ${saldoActual}`);
+      notifyTelegram(`⚠️ <b>Desincronización de Saldo</b>\nUID: ${uid}\n📊 Esperado: ${expectedSaldo} CR\n💰 Real: ${saldoActual} CR`);
+    }
+
+    res.json({
+      uid,
+      creditoReal: saldoActual,
+      sincronizado: true,
+      desincronizacion: expectedSaldo !== undefined ? (expectedSaldo !== saldoActual) : false,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Error /api/saldo-sync:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== ENDPOINT DE LECTURA DE USUARIO COMPLETO ====================
+
+app.get('/api/usuario/:uid', async (req, res) => {
+  const { uid } = req.params;
+
+  if (!uid || uid.length < 10) {
+    return res.status(400).json({ error: 'UID inválido' });
+  }
+
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Firebase no configurado' });
+    }
+
+    // Leer datos del usuario
+    const snap = await db.ref(`users/${uid}`).once('value');
+    const userData = snap.val();
+
+    if (!userData) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // Retornar solo campos públicos y relevantes
+    res.json({
+      uid,
+      telefono: userData.telefono || null,
+      creditoReal: userData.creditoReal !== undefined ? userData.creditoReal : 0,
+      creditoPromo: userData.creditoPromo !== undefined ? userData.creditoPromo : 0,
+      rol: userData.rol || 'miembro',
+      estado: userData.estado || 'activo',
+      lastUpdated: userData.lastUpdated || null,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Error /api/usuario:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== ENDPOINT DE ESTADO DE AGENTES ====================
 
 
@@ -543,8 +621,8 @@ app.get('/api/agents-status', async (req, res) => {
   };
   
   // Claves directas proporcionadas por el Comandante
-  const geminiKey = '';
-  const groqKey   = '';
+  const geminiKey = process.env.GEMINI_API_KEY || '';
+  const groqKey = process.env.GROQ_API_KEY || '';
   
   // Probar Geminis02
   try {
