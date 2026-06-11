@@ -547,7 +547,7 @@ app.get('/api/agents-status', async (req, res) => {
       const resp = await axios.post(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
         { contents: [{ parts: [{ text: 'OK' }] }] },
-        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 8000 }
+        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 15000 }
       );
       status.Geminis02 = resp.data?.candidates ? 'online' : 'error';
     } catch(e) { status.Geminis02 = 'error: ' + e.message; }
@@ -558,7 +558,7 @@ app.get('/api/agents-status', async (req, res) => {
       const resp = await axios.post(
         'https://api.groq.com/openai/v1/chat/completions',
         { model: 'llama-3.1-8b-instant', messages: [{ role: 'user', content: 'OK' }] },
-        { headers: { Authorization: 'Bearer ' + groqKey, 'Content-Type': 'application/json' }, timeout: 8000 }
+        { headers: { Authorization: 'Bearer ' + groqKey, 'Content-Type': 'application/json' }, timeout: 15000 }
       );
       status.Agente_groc01 = resp.data?.choices ? 'online' : 'error';
     } catch(e) { status.Agente_groc01 = 'error: ' + e.message; }
@@ -669,7 +669,7 @@ app.get('/api/verificacion-geminis', async (req, res) => {
       const resp = await axios.post(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent',
         { contents: [{ parts: [{ text: 'Eres el verificador de BetGroup Pro. Datos del sistema: ' + JSON.stringify(estado) + '. Genera un informe breve en 2 frases.' }] }] },
-        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 8000 }
+        { headers: { 'X-goog-api-key': geminiKey, 'Content-Type': 'application/json' }, timeout: 15000 }
       );
       if (resp.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
         informe = resp.data.candidates[0].content.parts[0].text;
