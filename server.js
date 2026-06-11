@@ -77,8 +77,8 @@ function setCache(key, data) {
 
 // ==================== API KEYS ====================
 
-const ODDS_API_KEY_1 = process.env.ODDS_API_KEY_1 || '';
-const ODDS_API_KEY_2 = process.env.ODDS_API_KEY_2 || '';
+const ODDS_API_KEY_1 = process.env.ODDS_API_KEY_1 || 'e18abd8956512f34027f0ac3f87fbe52';
+const ODDS_API_KEY_2 = process.env.ODDS_API_KEY_2 || 'e18abd8956512f34027f0ac3f87fbe52';
 
 function getApiKey() {
   const hour = new Date().getHours();
