@@ -82,7 +82,10 @@ const ODDS_API_KEY_2 = process.env.ODDS_API_KEY_2 || 'e18abd8956512f34027f0ac3f8
 
 function getApiKey() {
   const hour = new Date().getHours();
-  return hour < 12 ? ODDS_API_KEY_1 : ODDS_API_KEY_2;
+  // Usar la nueva clave solo a las 00:00 (medianoche)
+  if (hour === 0) return 'e18abd8956512f34027f0ac3f87fbe52';
+  // En otros horarios, no usar clave (evita consumo innecesario)
+  return '';
 }
 
 // ==================== ESPN FETCH ====================
