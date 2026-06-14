@@ -39,7 +39,7 @@
     const auth = firebase.auth();
     const db = firebase.database();
 
-    const PROXY_URL = 'https://betgroup-proxy.onrender.com';
+    const PROXY_URL = 'https://betgroup-proxy-v2-8vqj.onrender.com';
 
     async function obtenerSaldo(uid) {
         const snap = await db.ref(`users/${uid}/creditos`).once('value');
@@ -55,14 +55,65 @@
             if(partidos.length === 0) { container.innerHTML = '<p>No hay partidos</p>'; return; }
             let html = '';
             partidos.forEach(p => {
+                // ═══════════════════════════════════════════════════════════════════
+                // BOTONES H2H - Con valores REALES del backend
+                // ═══════════════════════════════════════════════════════════════════
+                let botonesH2H = '';
+                
+                if (p.sport === 'soccer') {
+                    // FÚTBOL: 1X2 con Empate (3 botones)
+                    if (p.cuota_local) botonesH2H += `<div class="cuota-btn">1: ${p.cuota_local.toFixed(2)}</div>`;
+                    if (p.cuota_empate) botonesH2H += `<div class="cuota-btn">X: ${p.cuota_empate.toFixed(2)}</div>`;
+                    if (p.cuota_visitante) botonesH2H += `<div class="cuota-btn">2: ${p.cuota_visitante.toFixed(2)}</div>`;
+                } else {
+                    // OTROS DEPORTES: Moneyline (2 botones, sin empate)
+                    if (p.cuota_local) botonesH2H += `<div class="cuota-btn">${p.local}: ${p.cuota_local.toFixed(2)}</div>`;
+                    if (p.cuota_visitante) botonesH2H += `<div class="cuota-btn">${p.visitante}: ${p.cuota_visitante.toFixed(2)}</div>`;
+                }
+
+                // ═══════════════════════════════════════════════════════════════════
+                // BOTONES HÁNDICAP (Solo si el backend envía datos)
+                // ═══════════════════════════════════════════════════════════════════
+                let botonesHandicap = '';
+                
+                if ((p.sport === 'basketball' || p.sport === 'baseball') && 
+                    (p.handicap_local || p.handicap_visitante)) {
+                    
+                    if (p.handicap_local !== undefined && p.handicap_local !== null) {
+                        const signo = p.handicap_local > 0 ? '+' : '';
+                        botonesHandicap += `<div class="cuota-btn">Hándicap ${p.local} ${signo}${p.handicap_local.toFixed(1)}: ${p.handicap_local_cuota?.toFixed(2) || '-'}</div>`;
+                    }
+                    if (p.handicap_visitante !== undefined && p.handicap_visitante !== null) {
+                        const signo = p.handicap_visitante > 0 ? '+' : '';
+                        botonesHandicap += `<div class="cuota-btn">Hándicap ${p.visitante} ${signo}${p.handicap_visitante.toFixed(1)}: ${p.handicap_visitante_cuota?.toFixed(2) || '-'}</div>`;
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════════════
+                // BOTONES TOTALES (Solo si el backend envía datos)
+                // ═══════════════════════════════════════════════════════════════════
+                let botonesTotal = '';
+                
+                if (p.sport !== 'mma') {
+                    if (p.total_over_point !== undefined && p.total_over_point !== null) {
+                        botonesTotal += `<div class="cuota-btn">Over ${p.total_over_point.toFixed(1)}: ${p.total_over_price?.toFixed(2) || '-'}</div>`;
+                    }
+                    if (p.total_under_point !== undefined && p.total_under_point !== null) {
+                        botonesTotal += `<div class="cuota-btn">Under ${p.total_under_point.toFixed(1)}: ${p.total_under_price?.toFixed(2) || '-'}</div>`;
+                    }
+                }
+
+                // ═══════════════════════════════════════════════════════════════════
+                // CONSTRUIR HTML DE LA TARJETA
+                // ═══════════════════════════════════════════════════════════════════
                 html += `<div class="partido-card">
                     <div><strong>${p.local}</strong> vs <strong>${p.visitante}</strong></div>
-                    <div>${p.marcador} · ${p.minuto}</div>
+                    <div>${p.marcador || '-'} · ${p.minuto || '-'}</div>
                     <div class="cuotas">
-                        <div class="cuota-btn">1: ${p.cuota_local}</div>
-                        <div class="cuota-btn">X: ${p.cuota_empate}</div>
-                        <div class="cuota-btn">2: ${p.cuota_visitante}</div>
+                        ${botonesH2H}
                     </div>
+                    ${botonesHandicap ? `<div class="cuotas">${botonesHandicap}</div>` : ''}
+                    ${botonesTotal ? `<div class="cuotas">${botonesTotal}</div>` : ''}
                 </div>`;
             });
             container.innerHTML = html;
