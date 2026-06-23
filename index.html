@@ -2451,10 +2451,12 @@ async function fetchESPN() {
             console.warn('Error fetching ESPN for ' + dep.path, e);
         }
     }
+    console.log("📡 fetchESPN devolvió " + allEvents.length + " eventos");
     return allEvents;
 }
 
 async function loadEvents(){
+  console.log("🚀 loadEvents ejecutado. Hora:", new Date().toISOString());
   alert("✅ loadEvents ejecutado");
   const c=document.getElementById('eventsList');
   c.innerHTML='<div class="loader"><i class="fas fa-spinner"></i>Actualizando...</div>';
