@@ -1209,8 +1209,7 @@ window.borrarCodigo = async function(code) {
 <link rel="apple-touch-icon" sizes="192x192" href="/favicon.png">
 <link rel="shortcut icon" href="/favicon.png">
 </head>
-<body>
-<div id="debugLog" style="position:fixed;bottom:0;left:0;right:0;background:#000;color:#0f0;font-size:10px;max-height:100px;overflow-y:auto;z-index:9999;padding:4px;"></div><div class="brand-container"><img src="logo.png?v=1779433328" class="main-logo" alt="BetGroup Pro"></div>
+<body><div class="brand-container"><img src="logo.png?v=1779433328" class="main-logo" alt="BetGroup Pro"></div>
 
 <div id="toast"></div>
 
@@ -2431,109 +2430,6 @@ function findBestMatch(ev, cuotasBot) {
   return best;
 }
 
-
-function parseEvents(espnData, sport) {
-  const events = [];
-  if (!espnData || !espnData.events) return events;
-
-  for (const ev of espnData.events) {
-    try {
-      let allCompetitors = [];
-      let competitionStatus = ev.status?.type;
-
-      if (ev.competitions?.length) {
-        allCompetitors = ev.competitions[0].competitors || [];
-        competitionStatus = ev.competitions[0].status?.type || competitionStatus;
-      } else if (ev.groupings?.length) {
-        for (const grouping of ev.groupings) {
-          if (grouping.competitions?.length) {
-            const latestComp = grouping.competitions[grouping.competitions.length - 1];
-            allCompetitors = latestComp.competitors || [];
-            competitionStatus = latestComp.status?.type || competitionStatus;
-            if (allCompetitors.length >= 2) break;
-          }
-        }
-      }
-      
-      if (allCompetitors.length < 2) continue;
-
-      const isTeamSport = allCompetitors[0].homeAway !== undefined;
-      let home, away;
-      
-      if (isTeamSport) {
-        home = allCompetitors.find(c => c.homeAway === 'home');
-        away = allCompetitors.find(c => c.homeAway === 'away');
-        if (!home && !away) {
-          home = allCompetitors[0];
-          away = allCompetitors[1];
-        }
-      } else {
-        home = allCompetitors[0];
-        away = allCompetitors[1];
-      }
-
-      const getName = (c) => {
-        const name = c?.athlete?.displayName || c?.team?.displayName || 'Desconocido';
-        // Si el nombre es TBD o null, devolver null para filtrar el evento
-        if (!name || name === 'TBD' || name === 'None') return null;
-        return name;
-      };
-      
-      const getLogo = (c) => {
-    // Deportes de equipo: usar logo del equipo
-    if (c?.team?.logo) return c.team.logo;
-    // Deportes individuales: usar foto del atleta
-    if (c?.athlete?.headshot) return c.athlete.headshot;
-    return null;
-  };
-
-      const status = competitionStatus || ev.status?.type;
-      if (!status) continue;
-      
-      const isLive = status.state === 'in';
-      const isScheduled = status.state === 'pre';
-      if (!isLive && !isScheduled) continue;
-
-      const homeScore = home.score || '0';
-      const awayScore = away.score || '0';
-
-            const nombreLocal = getName(home);
-      const nombreVisitante = getName(away);
-      if (!nombreLocal || !nombreVisitante) continue; // Saltar eventos TBD
-
-      events.push({
-        id: ev.id,
-        sport,
-        liga: espnData.leagues?.[0]?.name || sport,
-        ligaLogo: espnData.leagues?.[0]?.logos?.[0]?.href || null,
-        local: getName(home),
-        visitante: getName(away),
-        homeLogo: getLogo(home),
-        awayLogo: getLogo(away),
-        marcador: isLive ? `${homeScore}-${awayScore}` : null,
-        minuto: ev.status?.displayClock || null,
-        estado: isLive ? 'live' : 'scheduled',
-        horaInicio: ev.date || null,
-        cuota_local: null,
-        cuota_empate: null,
-        cuota_visitante: null
-      });
-    } catch(e) { 
-      /* evento inválido */ 
-    }
-  }
-  
-  return events;
-}
-
-// Nueva función para obtener eventos ESPN directamente desde el navegador
-
-function debugLog(msg) {
-  var d = document.getElementById('debugLog');
-  if (d) d.innerHTML += '<br>' + msg;
-  console.log(msg);
-}
-
 async function fetchESPN() {
     const deportes = [
         { path: 'basketball/nba/scoreboard', sport: 'basketball' },
@@ -2552,7 +2448,7 @@ async function fetchESPN() {
             const events = parseEvents(data, dep.sport);
             allEvents = allEvents.concat(events);
         } catch (e) {
-            debugLog('Error ESPN ' + dep.path + ': ' + e.message); console.warn('Error fetching ESPN for ' + dep.path, e);
+            console.warn('Error fetching ESPN for ' + dep.path, e);
         }
     }
     return allEvents;
@@ -2563,20 +2459,17 @@ async function loadEvents(){
   c.innerHTML='<div class="loader"><i class="fas fa-spinner"></i>Actualizando...</div>';
   try{
     const [espnEventsRaw, mercadosSnap] = await Promise.allSettled([
-      fetchESPN().catch(() => []),  // eventos ESPN directos desde el navegador
+      fetchESPN().catch(() => []),
       db.ref('mercados').once('value')
     ]);
 
     let espnEvents = [];
-    if(espnEventsRaw.status!=='fulfilled' || !Array.isArray(espnEventsRaw.value) || espnEventsRaw.value.length===0){
-      alert('⚠️ fetchESPN no obtuvo eventos. Recargue la página.');
-      console.error('fetchESPN falló:', espnEventsRaw);
-    }
     if(espnEventsRaw.status==='fulfilled'&&Array.isArray(espnEventsRaw.value)){
       espnEvents = espnEventsRaw.value.filter(e=>
         e.sport !== 'football' && e.sport !== 'hockey'
       );
     }
+
     // Enriquecer con cuotas reales via POST /api/enriquecer
     if(espnEvents.length > 0){
       try{
@@ -2591,7 +2484,7 @@ async function loadEvents(){
             espnEvents = enrichData.data;
           }
         }
-      } catch(e){ alert('⚠️ Error al enriquecer cuotas: ' + e.message); console.warn('Error enriqueciendo:', e.message); }
+      } catch(e){ console.warn('Error enriqueciendo:', e.message); }
     }
 
     // Cuotas del bot indexadas por equipos
@@ -5869,11 +5762,7 @@ async function sendChat() {
 <!-- FIN PANEL DE CHAT -->
 </body>
 </html>
-<script>
 <script src="filtro_usuarios.js">
-</script>
-<script>
-<script>
 // 🔍 MOTOR DE BÚSQUEDA USUARIOS
 
 window.borrarCodigo = async function(code) {
@@ -5903,12 +5792,9 @@ async function liquidarApuestaUI(betId, estado, ganancia, marcador) {
     });
     console.log(`✅ OK`);
     location.reload();
-</script>
-</script>
   } catch(e) {
     console.error('❌', e.message);
     alert(`❌ ${e.message}`);
   }
 }
 
-</script>
