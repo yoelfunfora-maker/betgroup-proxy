@@ -2565,6 +2565,22 @@ async function loadEvents(){
         e.sport !== 'football' && e.sport !== 'hockey'
       );
     }
+    // Enriquecer con cuotas reales via POST /api/enriquecer
+    if(espnEvents.length > 0){
+      try{
+        const respEnrich = await fetch(`${PROXY}/api/enriquecer`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({eventos: espnEvents})
+        });
+        if(respEnrich.ok){
+          const enrichData = await respEnrich.json();
+          if(Array.isArray(enrichData.data) && enrichData.data.length > 0){
+            espnEvents = enrichData.data;
+          }
+        }
+      } catch(e){ console.warn('Error enriqueciendo:', e.message); }
+    }
 
     // Cuotas del bot indexadas por equipos
     const cuotasBot = {};
