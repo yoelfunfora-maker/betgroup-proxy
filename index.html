@@ -2431,6 +2431,100 @@ function findBestMatch(ev, cuotasBot) {
 }
 
 
+function parseEvents(espnData, sport) {
+  const events = [];
+  if (!espnData || !espnData.events) return events;
+
+  for (const ev of espnData.events) {
+    try {
+      let allCompetitors = [];
+      let competitionStatus = ev.status?.type;
+
+      if (ev.competitions?.length) {
+        allCompetitors = ev.competitions[0].competitors || [];
+        competitionStatus = ev.competitions[0].status?.type || competitionStatus;
+      } else if (ev.groupings?.length) {
+        for (const grouping of ev.groupings) {
+          if (grouping.competitions?.length) {
+            const latestComp = grouping.competitions[grouping.competitions.length - 1];
+            allCompetitors = latestComp.competitors || [];
+            competitionStatus = latestComp.status?.type || competitionStatus;
+            if (allCompetitors.length >= 2) break;
+          }
+        }
+      }
+      
+      if (allCompetitors.length < 2) continue;
+
+      const isTeamSport = allCompetitors[0].homeAway !== undefined;
+      let home, away;
+      
+      if (isTeamSport) {
+        home = allCompetitors.find(c => c.homeAway === 'home');
+        away = allCompetitors.find(c => c.homeAway === 'away');
+        if (!home && !away) {
+          home = allCompetitors[0];
+          away = allCompetitors[1];
+        }
+      } else {
+        home = allCompetitors[0];
+        away = allCompetitors[1];
+      }
+
+      const getName = (c) => {
+        const name = c?.athlete?.displayName || c?.team?.displayName || 'Desconocido';
+        // Si el nombre es TBD o null, devolver null para filtrar el evento
+        if (!name || name === 'TBD' || name === 'None') return null;
+        return name;
+      };
+      
+      const getLogo = (c) => {
+    // Deportes de equipo: usar logo del equipo
+    if (c?.team?.logo) return c.team.logo;
+    // Deportes individuales: usar foto del atleta
+    if (c?.athlete?.headshot) return c.athlete.headshot;
+    return null;
+  };
+
+      const status = competitionStatus || ev.status?.type;
+      if (!status) continue;
+      
+      const isLive = status.state === 'in';
+      const isScheduled = status.state === 'pre';
+      if (!isLive && !isScheduled) continue;
+
+      const homeScore = home.score || '0';
+      const awayScore = away.score || '0';
+
+            const nombreLocal = getName(home);
+      const nombreVisitante = getName(away);
+      if (!nombreLocal || !nombreVisitante) continue; // Saltar eventos TBD
+
+      events.push({
+        id: ev.id,
+        sport,
+        liga: espnData.leagues?.[0]?.name || sport,
+        ligaLogo: espnData.leagues?.[0]?.logos?.[0]?.href || null,
+        local: getName(home),
+        visitante: getName(away),
+        homeLogo: getLogo(home),
+        awayLogo: getLogo(away),
+        marcador: isLive ? `${homeScore}-${awayScore}` : null,
+        minuto: ev.status?.displayClock || null,
+        estado: isLive ? 'live' : 'scheduled',
+        horaInicio: ev.date || null,
+        cuota_local: null,
+        cuota_empate: null,
+        cuota_visitante: null
+      });
+    } catch(e) { 
+      /* evento inválido */ 
+    }
+  }
+  
+  return events;
+}
+
 // Nueva función para obtener eventos ESPN directamente desde el navegador
 async function fetchESPN() {
     const deportes = [
