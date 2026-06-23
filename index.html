@@ -1209,7 +1209,8 @@ window.borrarCodigo = async function(code) {
 <link rel="apple-touch-icon" sizes="192x192" href="/favicon.png">
 <link rel="shortcut icon" href="/favicon.png">
 </head>
-<body><div class="brand-container"><img src="logo.png?v=1779433328" class="main-logo" alt="BetGroup Pro"></div>
+<body>
+<div id="debugLog" style="position:fixed;bottom:0;left:0;right:0;background:#000;color:#0f0;font-size:10px;max-height:100px;overflow-y:auto;z-index:9999;padding:4px;"></div><div class="brand-container"><img src="logo.png?v=1779433328" class="main-logo" alt="BetGroup Pro"></div>
 
 <div id="toast"></div>
 
@@ -2526,6 +2527,13 @@ function parseEvents(espnData, sport) {
 }
 
 // Nueva función para obtener eventos ESPN directamente desde el navegador
+
+function debugLog(msg) {
+  var d = document.getElementById('debugLog');
+  if (d) d.innerHTML += '<br>' + msg;
+  console.log(msg);
+}
+
 async function fetchESPN() {
     const deportes = [
         { path: 'basketball/nba/scoreboard', sport: 'basketball' },
@@ -2544,7 +2552,7 @@ async function fetchESPN() {
             const events = parseEvents(data, dep.sport);
             allEvents = allEvents.concat(events);
         } catch (e) {
-            console.warn('Error fetching ESPN for ' + dep.path, e);
+            debugLog('Error ESPN ' + dep.path + ': ' + e.message); console.warn('Error fetching ESPN for ' + dep.path, e);
         }
     }
     return allEvents;
