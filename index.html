@@ -2562,7 +2562,7 @@ async function loadEvents(){
     let espnEvents = [];
     if(espnEventsRaw.status==='fulfilled'&&Array.isArray(espnEventsRaw.value)){
       espnEvents = espnEventsRaw.value.filter(e=>
-        e.sport !== 'football' && e.sport !== 'hockey'
+        e.sport !== 'football' && e.sport !== 'hockey' && e.horaInicio && (new Date(e.horaInicio).getTime() - Date.now()) < 7 * 24 * 60 * 60 * 1000
       );
     }
 
