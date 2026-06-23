@@ -2430,18 +2430,44 @@ function findBestMatch(ev, cuotasBot) {
   return best;
 }
 
+
+// Nueva función para obtener eventos ESPN directamente desde el navegador
+async function fetchESPN() {
+    const deportes = [
+        { path: 'basketball/nba/scoreboard', sport: 'basketball' },
+        { path: 'baseball/mlb/scoreboard', sport: 'baseball' },
+        { path: 'soccer/fifa.friendly/scoreboard', sport: 'soccer' },
+        { path: 'soccer/fifa.world/scoreboard', sport: 'soccer' },
+        { path: 'tennis/wta/scoreboard', sport: 'tennis' },
+        { path: 'mma/ufc/scoreboard', sport: 'mma' }
+    ];
+    let allEvents = [];
+    for (const dep of deportes) {
+        try {
+            const resp = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${dep.path}`);
+            if (!resp.ok) continue;
+            const data = await resp.json();
+            const events = parseEvents(data, dep.sport);
+            allEvents = allEvents.concat(events);
+        } catch (e) {
+            console.warn('Error fetching ESPN for ' + dep.path, e);
+        }
+    }
+    return allEvents;
+}
+
 async function loadEvents(){
   const c=document.getElementById('eventsList');
   c.innerHTML='<div class="loader"><i class="fas fa-spinner"></i>Actualizando...</div>';
   try{
-    const [resProxy, mercadosSnap] = await Promise.allSettled([
-      fetch(`${PROXY}/api/fixtures`).then(r=>r.ok?r.json():null),
+    const [espnEventsRaw, mercadosSnap] = await Promise.allSettled([
+      fetchESPN().catch(() => []),  // eventos ESPN directos desde el navegador
       db.ref('mercados').once('value')
     ]);
 
     let espnEvents = [];
-    if(resProxy.status==='fulfilled'&&resProxy.value?.data){
-      espnEvents = resProxy.value.data.filter(e=>
+    if(espnEventsRaw.status==='fulfilled'&&Array.isArray(espnEventsRaw.value)){
+      espnEvents = espnEventsRaw.value.filter(e=>
         e.sport !== 'football' && e.sport !== 'hockey'
       );
     }
@@ -5710,6 +5736,7 @@ async function sendChat() {
 </body>
 </html>
 <script src="filtro_usuarios.js">
+</script>
 // 🔍 MOTOR DE BÚSQUEDA USUARIOS
 
 window.borrarCodigo = async function(code) {
