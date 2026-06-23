@@ -2622,7 +2622,13 @@ async function loadEvents(){
         cuotasOdds = {
           local: ev.cuota_local,
           visitante: ev.cuota_visitante,
-          empate: ev.cuota_empate || null
+          empate: ev.cuota_empate || null,
+          handicap_local: ev.handicap_local || null,
+          handicap_visitante: ev.handicap_visitante || null,
+          total_over_point: ev.total_over_point || null,
+          total_over_price: ev.total_over_price || null,
+          total_under_point: ev.total_under_point || null,
+          total_under_price: ev.total_under_price || null
         };
       }
       if(cuotasOdds){
@@ -2632,6 +2638,12 @@ async function loadEvents(){
           bloqueado: false,
           cuota_visitante: parseFloat(((cuotasOdds.visitante||ev.cuota_visitante)*(1-m)).toFixed(2)),
           cuota_empate: cuotasOdds.empate?parseFloat(((cuotasOdds.empate||ev.cuota_empate)*(1-m)).toFixed(2)):null,
+          handicap_local: cuotasOdds.handicap_local || null,
+          handicap_visitante: cuotasOdds.handicap_visitante || null,
+          total_over_point: cuotasOdds.total_over_point || null,
+          total_over_price: cuotasOdds.total_over_price || null,
+          total_under_point: cuotasOdds.total_under_point || null,
+          total_under_price: cuotasOdds.total_under_price || null,
           fuenteCuotas:'odds-api'
         };
       }
