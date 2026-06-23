@@ -2568,6 +2568,10 @@ async function loadEvents(){
     ]);
 
     let espnEvents = [];
+    if(espnEventsRaw.status!=='fulfilled' || !Array.isArray(espnEventsRaw.value) || espnEventsRaw.value.length===0){
+      alert('⚠️ fetchESPN no obtuvo eventos. Recargue la página.');
+      console.error('fetchESPN falló:', espnEventsRaw);
+    }
     if(espnEventsRaw.status==='fulfilled'&&Array.isArray(espnEventsRaw.value)){
       espnEvents = espnEventsRaw.value.filter(e=>
         e.sport !== 'football' && e.sport !== 'hockey'
@@ -2587,7 +2591,7 @@ async function loadEvents(){
             espnEvents = enrichData.data;
           }
         }
-      } catch(e){ console.warn('Error enriqueciendo:', e.message); }
+      } catch(e){ alert('⚠️ Error al enriquecer cuotas: ' + e.message); console.warn('Error enriqueciendo:', e.message); }
     }
 
     // Cuotas del bot indexadas por equipos
