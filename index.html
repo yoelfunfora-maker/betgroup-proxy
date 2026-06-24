@@ -5844,7 +5844,7 @@ async function sendChat() {
   input.value = '';
   cont.scrollTop = cont.scrollHeight;
   try {
-    const resp = await fetch('https://betgroup-proxy-v2-8vqj.onrender.com/api/chat', {
+    const resp = await fetch('https://betgroup-proxy-v2-8vqj.onrender.com/api/huggingface', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt: msg, tarea: 'chat', rol: CU?.rol || 'miembro' })
     });
