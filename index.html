@@ -3764,7 +3764,7 @@ async function loadActiveCodesMiembro(){
   if(!s.val()){c.innerHTML="<p style=\"color:#6b7280\">Sin códigos activos</p>";return;}
   let html="";
   const todos=Object.values(s.val());
-  const mios=todos.filter(code=>code.createdBy===CU.uid && !code.usado);
+  const mios=todos.filter(code=>code.generadoPor===CU.uid && !code.usado);
   if(mios.length===0){c.innerHTML="<p style=\"color:#6b7280\">No tienes códigos disponibles</p>";return;}
   mios.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   mios.forEach(code=>{
