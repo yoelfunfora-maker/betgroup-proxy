@@ -488,6 +488,59 @@ window.borrarCodigo = async function(code) {
     .no-eventos i{font-size:3rem;margin-bottom:16px;display:block;color:var(--border);}
     .footer{text-align:center;padding:24px 16px;color:#4b5563;font-size:.75rem;margin-top:24px;border-top:1px solid var(--border);}
     img.preview{max-width:90px;max-height:70px;border-radius:8px;cursor:pointer;object-fit:cover;}
+    
+    /* ── BETSLIP FLOTANTE ── */
+    #betslip-fab {
+      position: fixed;
+      bottom: 80px;
+      right: 18px;
+      z-index: 999;
+      background: linear-gradient(135deg, #d4af37 0%, #b8860b 100%);
+      border-radius: 50px;
+      padding: 12px 18px;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 4px 20px rgba(212,175,55,0.5);
+      cursor: pointer;
+      animation: fab-entrada 0.3s ease;
+      border: none;
+      color: #000;
+    }
+    #betslip-fab.visible { display: flex; }
+    #betslip-fab-count {
+      background: #000;
+      color: #d4af37;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 900;
+    }
+    #betslip-fab-label {
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+    }
+    #betslip-fab-total {
+      font-size: 12px;
+      opacity: 0.85;
+      font-weight: 700;
+    }
+    @keyframes fab-entrada {
+      from { transform: scale(0.5) translateY(20px); opacity: 0; }
+      to   { transform: scale(1) translateY(0);      opacity: 1; }
+    }
+    @keyframes fab-pulse {
+      0%   { box-shadow: 0 4px 20px rgba(212,175,55,0.5); }
+      50%  { box-shadow: 0 4px 30px rgba(212,175,55,0.9); }
+      100% { box-shadow: 0 4px 20px rgba(212,175,55,0.5); }
+    }
+    #betslip-fab.visible { animation: fab-pulse 2s infinite; }
+
     /* BETSLIP */
     #betslip{position:fixed;bottom:0;left:0;right:0;background:#0d1117;border-top:2px solid var(--blue);transform:translateY(100%);transition:transform .3s;z-index:500;box-shadow:0 -10px 40px rgba(0,0,0,.8);}
     #betslip.open{transform:translateY(0);}
@@ -1755,6 +1808,13 @@ window.borrarCodigo = async function(code) {
   </div>
 </div>
 
+<!-- BETSLIP FAB FLOTANTE -->
+<button id="betslip-fab" onclick="toggleBetslip(true)" aria-label="Ver apuesta">
+  <span id="betslip-fab-count">1</span>
+  <span id="betslip-fab-label">MI APUESTA</span>
+  <span id="betslip-fab-total"></span>
+</button>
+
 <!-- BETSLIP -->
 <div id="betslip">
   <div style="padding:16px;max-width:500px;margin:0 auto;">
@@ -2167,7 +2227,7 @@ async function loadHistory(){
 // ==================== BETSLIP ====================
 let currentOdds=1.0,currentEvent='',currentType='',currentSport='',currentEventId='';
 
-function openBetslip(eventName,type,odds,sport,liga){
+function openBetslip(eventName,type,odds,sport,liga){ setTimeout(actualizarFab, 150);
   currentOdds=odds;currentEvent=eventName;currentType=type;currentSport=sport;
       const evData = allEvents.find(e => (e.local + ' vs ' + e.visitante) === eventName);
       if(evData) currentEventId = evData.id;
@@ -2185,7 +2245,7 @@ function openBetslip(eventName,type,odds,sport,liga){
   if(window.navigator.vibrate)window.navigator.vibrate(40);
 }
 
-function toggleBetslip(show){
+function toggleBetslip(show){ setTimeout(actualizarFab, 100);
   const slip=document.getElementById('betslip');
   slip.classList.toggle('open',show);
   if(window.navigator.vibrate)window.navigator.vibrate(show?40:20);
@@ -4682,6 +4742,34 @@ async function eliminarUsuarioCompleto(uid, nombreUsuario) {
 }
 
 window.confirmBet = confirmBet;
+
+// ── Actualizar botón flotante del betslip ──
+function actualizarFab() {
+  const fab = document.getElementById('betslip-fab');
+  const fabTotal = document.getElementById('betslip-fab-total');
+  if (!fab) return;
+  const slip = document.getElementById('betslip');
+  const isOpen = slip && slip.classList.contains('open');
+  // Verificar si hay selección activa
+  const evento = document.getElementById('slip-evento');
+  const cuota = document.getElementById('slip-cuota');
+  const monto = document.getElementById('slip-monto');
+  const tieneSeleccion = evento && evento.value && cuota && parseFloat(cuota.value) > 0;
+  if (tieneSeleccion && !isOpen) {
+    fab.classList.add('visible');
+    const c = parseFloat(cuota.value) || 0;
+    const m = parseFloat(monto && monto.value) || 0;
+    if (m > 0) {
+      fabTotal.textContent = 'Gan. ' + (m * c).toFixed(0);
+    } else {
+      fabTotal.textContent = 'x' + c.toFixed(2);
+    }
+  } else {
+    fab.classList.remove('visible');
+  }
+}
+window.actualizarFab = actualizarFab;
+
 window.toggleBetslip = toggleBetslip;
 window.calcReturn = calcReturn;
 window.openBetslip = openBetslip;
