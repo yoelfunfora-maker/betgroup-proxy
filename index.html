@@ -2654,10 +2654,10 @@ async function loadEvents(){
       if(cuotasOdds){
         const m=cfg.margen||0.20;
         return {...ev,
-          cuota_local: parseFloat(((cuotasOdds.local||ev.cuota_local)*(1-m)).toFixed(2)),
+          cuota_local: cuotasOdds.local || ev.cuota_local,
           bloqueado: false,
-          cuota_visitante: parseFloat(((cuotasOdds.visitante||ev.cuota_visitante)*(1-m)).toFixed(2)),
-          cuota_empate: cuotasOdds.empate?parseFloat(((cuotasOdds.empate||ev.cuota_empate)*(1-m)).toFixed(2)):null,
+          cuota_visitante: cuotasOdds.visitante || ev.cuota_visitante,
+          cuota_empate: cuotasOdds.empate || ev.cuota_empate || null,
           handicap_local: cuotasOdds.handicap_local || null,
           handicap_visitante: cuotasOdds.handicap_visitante || null,
           total_over_point: cuotasOdds.total_over_point || null,
