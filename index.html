@@ -5846,10 +5846,10 @@ async function sendChat() {
   try {
     const resp = await fetch('https://betgroup-proxy-v2-8vqj.onrender.com/api/huggingface', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mensaje: msg })
+      body: JSON.stringify({ prompt: msg, tarea: "chat" })
     });
     const data = await resp.json();
-    const botMsg = data.respuesta || 'Error al obtener respuesta.';
+    const botMsg = data.reply || 'Error al obtener respuesta.';
     cont.innerHTML += '<div class="msg-bot">' + botMsg + '</div>';
     cont.scrollTop = cont.scrollHeight;
   } catch(e) {
